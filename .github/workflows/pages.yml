@@ -30,13 +30,14 @@ jobs:
         shell: bash
         run: |
           test -s docs/index.html
+          test -s docs/viewer/index.html
           if find docs -type l -print -quit | grep -q .; then
             echo "::error::The website must not contain symbolic links."
             exit 1
           fi
-          unexpected="$(find docs -type f ! -path 'docs/index.html' ! -path 'docs/assets/screenshots/*.png' -print)"
+          unexpected="$(find docs -type f ! -path 'docs/index.html' ! -path 'docs/viewer/index.html' ! -path 'docs/assets/screenshots/*.png' -print)"
           if [ -n "$unexpected" ]; then
-            echo "::error::Only the capstone and screenshot PNGs belong in the Pages artifact."
+            echo "::error::Only the capstone, guided viewer, and screenshot PNGs belong in the Pages artifact."
             printf '%s\n' "$unexpected"
             exit 1
           fi

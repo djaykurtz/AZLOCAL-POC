@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="description" content="A guided viewing window for the Azure Local capstone: recorded engineering, not a live management console." />
+<title>Azure Local | Viewing window</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMiAzMiI+PHJlY3Qgd2lkdGg9IjMyIiBoZWlnaHQ9IjMyIiByeD0iNCIgZmlsbD0iIzE2MTYxYiIvPjxwYXRoIGQ9Ik03IDI1VjE3IiBzdHJva2U9IiMzNWUwZTgiIHN0cm9rZS13aWR0aD0iMyIvPjxwYXRoIGQ9Ik0xMiAyNVYxMiIgc3Ryb2tlPSIjYTc4YmZhIiBzdHJva2Utd2lkdGg9IjMiLz48cGF0aCBkPSJNMTcgMjVWNyIgc3Ryb2tlPSIjZWRiMjAwIiBzdHJva2Utd2lkdGg9IjMiLz48cGF0aCBkPSJNMjIgMjVWMTAiIHN0cm9rZT0iIzAwYzc1OCIgc3Ryb2tlLXdpZHRoPSIzIi8+PHBhdGggZD0iTTI3IDI1VjE1IiBzdHJva2U9IiNmZTZlMDAiIHN0cm9rZS13aWR0aD0iMyIvPjwvc3ZnPg==" />
+<style>
+:root {
+  color-scheme: dark;
+  --shell: #16161b;
+  --panel: #1b1b21;
+  --ink: #ece8e1;
+  --soft: #b8b2aa;
+  --line: #38383f;
+  --work: #fe6e00;
+  --focus: #35e0e8;
+  --mono: ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace;
+  --sans: ui-sans-serif, system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+* { box-sizing: border-box; }
+html { font-size: 16px; }
+body { margin: 0; color: var(--ink); background: var(--shell); font: 1rem/1.45 var(--sans); }
+button, a { -webkit-tap-highlight-color: transparent; }
+
+.preview { min-height: 100svh; max-width: 920px; margin: auto; padding: 40px 24px; }
+.preview h1 { margin: 10px 0; font: 600 2rem/1.2 var(--mono); }
+.description { max-width: 62ch; font-size: 1.125rem; color: var(--soft); }
+.preview-card { display: block; width: min(100%, 720px); margin: 24px 0; padding: 0; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; background: var(--panel); color: var(--ink); cursor: pointer; text-align: left; }
+.preview-card img { display: block; width: 100%; height: auto; }
+.preview-card span { display: block; padding: 14px 16px; font: 600 1rem/1.4 var(--mono); }
+.preview-links { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+.preview-links p { color: var(--soft); font-size: 1rem; }
+
+.view-dialog { position: fixed; inset: 16px; margin: 0; padding: 0; width: calc(100vw - 32px); height: calc(100dvh - 32px); max-width: none; max-height: none; border: 0; background: var(--shell); color: var(--ink); overflow: auto; }
+.view-dialog::backdrop { background: rgba(0, 0, 0, 0.82); }
+.view-dialog[open] .window { animation: portal-in 180ms ease-out; }
+@keyframes portal-in { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: none; } }
+.viewer {
+  min-height: 0;
+  height: 100%;
+  display: grid;
+  grid-template-rows: auto minmax(18rem, 1fr) auto;
+}
+.embed .viewer { height: 100dvh; min-height: 100svh; }
+
+.top, .bottom { padding: 12px 20px; background: var(--panel); }
+.top { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; justify-content: space-between; gap: 16px; border-bottom: 1px solid var(--line); }
+.identity { min-width: 0; }
+.identity h1 { margin: 0; font: 600 1.125rem/1.35 var(--mono); }
+.identity p { margin: 3px 0 0; color: var(--soft); }
+.label { color: var(--soft); font: 1rem/1.35 var(--mono); }
+.identity .label { display: inline; margin-right: 12px; }
+.controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+
+.control {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--shell);
+  color: var(--ink);
+  font: 1rem/1.35 var(--mono);
+  text-decoration: none;
+  cursor: pointer;
+}
+.control:hover { border-color: var(--soft); }
+.control:disabled { cursor: not-allowed; color: var(--soft); }
+.control.primary { color: var(--shell); background: var(--work); border-color: var(--work); font-weight: 600; }
+.control.exit { border-color: var(--soft); font-weight: 600; }
+:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
+
+.window { min-width: 0; min-height: 0; display: flex; background: #000; }
+iframe { width: 100%; height: 100%; min-height: 0; border: 0; background: #000; }
+iframe:fullscreen { border: 0; border-radius: 0; width: 100vw; height: 100vh; }
+
+.bottom { border-top: 1px solid var(--line); }
+.hints { display: grid; grid-template-columns: 1fr 1fr 1.25fr; gap: 16px; margin: 5px 0 0; padding: 0; list-style: none; color: var(--soft); }
+.hints strong { color: var(--ink); font-weight: 600; }
+.footnote { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 20px; color: var(--soft); margin-top: 8px; }
+.footnote p { margin: 0; }
+kbd { color: var(--ink); font: 1rem/1.35 var(--mono); }
+.feedback { margin: 8px 0 0; color: var(--ink); border-left: 3px solid var(--work); padding-left: 10px; }
+[hidden] { display: none !important; }
+
+@media (max-width: 950px) {
+  .top { flex-wrap: wrap; }
+  .controls { width: 100%; }
+  .hints { grid-template-columns: 1fr; gap: 6px; }
+  .footnote { margin-top: 10px; }
+}
+
+@media (max-width: 500px) {
+  .top, .bottom { padding: 12px; }
+  .identity .label { display: block; margin: 0 0 3px; }
+  .control { flex: 1 1 auto; }
+  .preview { padding: 24px 16px; }
+  .view-dialog { inset: 8px; width: calc(100vw - 16px); height: calc(100dvh - 16px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .view-dialog[open] .window { animation: none; }
+}
+</style>
+</head>
+<body>
+<main class="preview" id="preview">
+  <div class="label">AZURE LOCAL CAPSTONE</div>
+  <h1>From physical fabric to working workloads</h1>
+  <p class="description">Explore a recorded four-node engineering POC: networking, pooled storage, Azure Arc, Kubernetes, and workload recovery. Interactive diagrams and evidence replays, not a live cluster. No Azure account is required.</p>
+  <button class="preview-card" id="openViewer" type="button" aria-haspopup="dialog" aria-controls="viewDialog" aria-label="Open the Azure Local capstone viewing window">
+    <img src="../assets/screenshots/03-platform-architecture.png" width="1536" height="864" alt="Azure Local platform diagram with Arc bridge, Storage Spaces Direct, and the physical fabric" />
+    <span>Explore the capstone &rarr;</span>
+  </button>
+  <div class="preview-links">
+    <a class="control" href="../index.html">Standalone presentation</a>
+    <p>Open, explore, and close the window. Your place in the deck is kept.</p>
+  </div>
+  <noscript><p class="description">The viewing window needs JavaScript. Use the standalone presentation link; its interactive deck also needs JavaScript.</p></noscript>
+</main>
+<dialog class="view-dialog" id="viewDialog" aria-labelledby="viewerTitle" aria-describedby="screenHint">
+<section class="viewer" id="viewer" aria-label="Azure Local viewing window">
+  <header class="top">
+    <div class="identity">
+      <h1 id="viewerTitle"><span class="label">VIEWING WINDOW</span>Azure Local</h1>
+      <p>Recorded engineering. No live Azure connection.</p>
+    </div>
+    <nav class="controls" aria-label="Viewing controls">
+      <a class="control primary" href="../index.html" target="_blank" rel="noopener" aria-label="Full view: open the standalone presentation in a new tab">Full view (new tab)</a>
+      <button class="control" id="fullscreen" type="button" aria-describedby="screenHint">Fullscreen</button>
+      <button class="control" id="focusDeck" type="button" aria-describedby="keyboardHint" disabled>Focus presentation</button>
+      <button class="control exit" id="exitView" type="button">Exit view</button>
+    </nav>
+  </header>
+
+  <section class="window" aria-label="Presentation">
+    <iframe id="presentation" data-src="../index.html" title="Azure Local capstone: interactive recorded presentation" tabindex="0" allow="fullscreen" allowfullscreen aria-describedby="screenHint keyboardHint"></iframe>
+  </section>
+
+  <footer class="bottom" aria-label="Presentation instructions">
+    <div class="label">EXPLORE THE PRESENTATION</div>
+    <ul class="hints">
+      <li><strong>Start:</strong> Begin; intro optional. Skip intro jumps ahead.</li>
+      <li><strong>Move:</strong> Rail, previous/next, or <kbd>&larr;</kbd> <kbd>&rarr;</kbd>.</li>
+      <li><strong>Evidence:</strong> BUILT toggles stops. Next opens, then advances. Close/Esc dismisses.</li>
+    </ul>
+    <div class="footnote">
+      <p id="screenHint">Fine details? Full view/fullscreen gives more room; landscape works best. Fullscreen Esc returns.</p>
+      <p id="keyboardHint"><kbd>Alt+Shift+H</kbd>: frame controls. <kbd>Esc</kbd>: close evidence first, then exit view.</p>
+    </div>
+    <p class="feedback" id="feedback" role="status" aria-live="polite" hidden></p>
+    <noscript><p class="feedback">The viewing controls need JavaScript. Full view still opens the standalone presentation, whose interactive deck also needs JavaScript.</p></noscript>
+  </footer>
+</section>
+</dialog>
+<script>
+(() => {
+  'use strict';
+  const frame = document.getElementById('presentation');
+  const focusButton = document.getElementById('focusDeck');
+  const fullscreenButton = document.getElementById('fullscreen');
+  const feedback = document.getElementById('feedback');
+  const preview = document.getElementById('preview');
+  const dialog = document.getElementById('viewDialog');
+  const viewer = document.getElementById('viewer');
+  const opener = document.getElementById('openViewer');
+  const exitButton = document.getElementById('exitView');
+  const embedded = new URLSearchParams(location.search).get('embed') === '1';
+  let ready = false;
+  let visible = false;
+  let pausedIntro = false;
+  let restoreFocus = opener;
+  let restoreScroll = { x: 0, y: 0 };
+  let restoreOverflow = '';
+
+  function notify(message) {
+    feedback.textContent = message;
+    feedback.hidden = false;
+  }
+
+  function synchronizeIntro() {
+    if (!ready) return;
+    const doc = frame.contentDocument;
+    const intro = doc.getElementById('intro');
+    const lamp = doc.getElementById('introState');
+    if (!intro.classList.contains('on')) { pausedIntro = false; return; }
+    if (!visible && !lamp.classList.contains('on')) {
+      doc.dispatchEvent(new frame.contentWindow.KeyboardEvent('keydown', { key: ' ', code: 'Space', bubbles: true, cancelable: true }));
+      pausedIntro = lamp.classList.contains('on');
+    } else if (visible && pausedIntro) {
+      if (lamp.classList.contains('on')) doc.dispatchEvent(new frame.contentWindow.KeyboardEvent('keydown', { key: ' ', code: 'Space', bubbles: true, cancelable: true }));
+      pausedIntro = false;
+    }
+  }
+
+  function setVisible(value) {
+    visible = value;
+    synchronizeIntro();
+  }
+
+  function loadPresentation() {
+    if (!frame.hasAttribute('src')) frame.src = frame.dataset.src;
+  }
+
+  function openView() {
+    restoreFocus = document.activeElement;
+    restoreScroll = { x: scrollX, y: scrollY };
+    restoreOverflow = document.body.style.overflow;
+    dialog.showModal();
+    document.body.style.overflow = 'hidden';
+    setVisible(true);
+    loadPresentation();
+    exitButton.focus();
+  }
+
+  async function exitView() {
+    if (document.fullscreenElement) await document.exitFullscreen();
+    setVisible(false);
+    if (embedded) {
+      if (window.parent !== window) window.parent.postMessage({ type: 'capstone-viewer:exit' }, location.origin);
+      else location.assign('./');
+      return;
+    }
+    dialog.close();
+    document.body.style.overflow = restoreOverflow;
+    scrollTo(restoreScroll.x, restoreScroll.y);
+    restoreFocus.focus({ preventScroll: true });
+  }
+
+  async function escapeView() {
+    const built = ready && frame.contentWindow.BUILT;
+    if (built && built.isOpen()) {
+      built.hide();
+      return;
+    }
+    if (document.fullscreenElement) await document.exitFullscreen();
+    else await exitView();
+  }
+
+  async function handleKeys(event) {
+    if (!visible) return;
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      await escapeView();
+      return;
+    }
+    if (event.altKey && event.shiftKey && !event.ctrlKey && !event.metaKey && event.key.toLowerCase() === 'h') {
+      event.preventDefault();
+      if (document.fullscreenElement) await document.exitFullscreen();
+      focusButton.focus();
+    }
+  }
+
+  function connectFrame() {
+    ready = false;
+    focusButton.disabled = true;
+    if (!frame.hasAttribute('src')) return;
+    const doc = frame.contentDocument;
+    if (!doc || !doc.getElementById('gate') || !doc.getElementById('btnNext')) {
+      notify('The presentation did not load. Open Full view or reload this window.');
+      return;
+    }
+    ready = true;
+    focusButton.disabled = false;
+    doc.addEventListener('keydown', handleKeys, true);
+    const observer = new MutationObserver(synchronizeIntro);
+    for (const id of ['intro', 'introState', 'introStage']) observer.observe(doc.getElementById(id), { attributes: true, attributeFilter: ['class'] });
+    synchronizeIntro();
+  }
+
+  frame.addEventListener('load', connectFrame);
+  document.addEventListener('keydown', handleKeys, true);
+  opener.addEventListener('click', openView);
+  exitButton.addEventListener('click', exitView);
+  dialog.addEventListener('cancel', event => { event.preventDefault(); escapeView(); });
+  dialog.addEventListener('click', event => {
+    const box = dialog.getBoundingClientRect();
+    if (event.target === dialog && (event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom)) exitView();
+  });
+  window.addEventListener('message', event => {
+    if (!embedded || event.origin !== location.origin || event.source !== window.parent || !event.data || typeof event.data !== 'object' || Array.isArray(event.data)) return;
+    if (event.data.type === 'capstone-viewer:visibility' && Object.keys(event.data).length === 2 && typeof event.data.visible === 'boolean') setVisible(event.data.visible);
+    else if (event.data.type === 'capstone-viewer:escape' && Object.keys(event.data).length === 1) escapeView();
+  });
+
+  if (embedded) {
+    preview.hidden = true;
+    document.documentElement.classList.add('embed');
+    document.body.appendChild(viewer);
+    dialog.remove();
+    setVisible(true);
+    loadPresentation();
+  }
+
+  focusButton.addEventListener('click', () => {
+    if (!ready) {
+      notify('The presentation is still loading. Try again, or open Full view.');
+      return;
+    }
+    const document = frame.contentDocument;
+    const gate = document.getElementById('gate');
+    const intro = document.getElementById('intro');
+    const target = document.getElementById(intro.classList.contains('on') ? 'introSkip' : gate.hidden ? 'btnNext' : 'gateGo');
+    target.focus();
+  });
+
+  if (!document.fullscreenEnabled || !frame.requestFullscreen) {
+    fullscreenButton.disabled = true;
+    fullscreenButton.title = 'Fullscreen is unavailable here. Full view still gives an uncluttered presentation.';
+  }
+
+  fullscreenButton.addEventListener('click', async () => {
+    try {
+      await frame.requestFullscreen();
+    } catch (error) {
+      if (!(error instanceof DOMException) && !(error instanceof TypeError)) throw error;
+      notify('Fullscreen did not open: ' + error.message + ' Full view is available instead.');
+    }
+  });
+
+  document.addEventListener('fullscreenchange', () => {
+    if (!document.fullscreenElement) fullscreenButton.focus();
+  });
+})();
+</script>
+</body>
+</html>
