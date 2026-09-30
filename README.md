@@ -4,7 +4,7 @@
 
 A four-node Azure Local proof of concept, with an interactive capstone that explains how physical networking, pooled storage, Azure management, Kubernetes, and application delivery fit together.
 
-**Explore:** [Source repository](https://github.com/djaykurtz/AZLOCAL-POC) | [Interactive capstone](https://djaykurtz.github.io/AZLOCAL-POC/). The capstone is a static explanation of recorded engineering work, not a connection to a running lab.
+**Explore:** [Guided viewing window](https://djaykurtz.github.io/AZLOCAL-POC/viewer/) | [Standalone capstone](https://djaykurtz.github.io/AZLOCAL-POC/) | [Source repository](https://github.com/djaykurtz/AZLOCAL-POC). The capstone is a static explanation of recorded engineering work, not a connection to a running lab.
 
 ![Starting network topology: six machines and two switches](docs/assets/screenshots/01-network-overview.png)
 
@@ -57,7 +57,11 @@ No package installation, build step, cloud account, or credentials are needed fo
 python -m http.server 8000 --bind 127.0.0.1 --directory .\docs
 ```
 
-Open `http://127.0.0.1:8000/`. Stop the server with `Ctrl+C`. You can also open `docs\index.html` directly in a modern browser.
+Open `http://127.0.0.1:8000/viewer/` for the viewing window or `http://127.0.0.1:8000/` for the unchanged standalone deck. Stop the server with `Ctrl+C`. You can also open `docs\index.html` directly in a modern browser.
+
+The viewer first shows an informative preview. Click it to expand the presentation in an in-page lightbox over a dimmed background, with brief instructions above and below the scaled stage. **Exit view** returns to the preview and restores focus and scroll; reopening keeps your place in the deck. **Focus presentation** moves keyboard focus into the deck; `Alt+Shift+H` returns to frame controls. `Esc` closes BUILT evidence first, then exits the view; fullscreen has its own browser-level Escape behavior. **Full view** opens the unchanged standalone deck in a user-activated new tab. No browser popup or playback starts automatically.
+
+The authored deck keeps its native 16:9 aspect ratio rather than reflowing. On a small or portrait display, fine detail can remain small even though the external guidance stays readable. Full view or fullscreen gives the deck more room; landscape is preferable for its dense diagrams. The frame does not redraw the presentation or introduce live management controls.
 
 Choose **Begin**; clear the intro checkbox to go straight to the console, or use **Skip intro** during the introduction. Click a movement in the left rail to jump to it. The next/previous buttons and left/right arrow keys navigate. **BUILT** is armed by default: Next first opens the movement's cutaway, then advances on the next press. Toggle BUILT off for uninterrupted movement navigation; **Escape** closes a cutaway. The reset button returns to the overview.
 
@@ -68,6 +72,7 @@ The composition has a native 1536 x 864 stage and scales at the same 16:9 aspect
 | Path | Purpose |
 | --- | --- |
 | `docs/index.html` | Standalone public capstone and Pages entry point |
+| `docs/viewer/index.html` | Informative preview and accessible lightbox with external guidance, keyboard controls, and a frame-only embedding mode |
 | `docs/assets/screenshots/` | Five representative presentation captures |
 | `.github/workflows/pages.yml` | Static Pages artifact and deployment workflow, restricted to `docs/` |
 | `source/README.md`, `source/STATUS.md` | Original engineering narrative and dated status |
@@ -78,6 +83,8 @@ The composition has a native 1536 x 864 stage and scales at the same 16:9 aspect
 | `source/working/`, `source/archive/` | Historical work records and superseded material; not the static website |
 
 The source layout is retained as a dated engineering snapshot under `source/`, with example environment identifiers. Commands and paths are relative to that directory and may describe environment-specific or historical behavior. Read the relevant runbook and configuration before running any infrastructure automation. Serving the capstone does not require executing these files.
+
+The same-origin `viewer/?embed=1` route supplies only the presentation and guidance for an embedding host's own modal. It requests exit with `{type: 'capstone-viewer:exit'}` sent to its parent's exact `location.origin`. Hosts must validate both the sender origin and iframe window, retain the iframe across closes, and restore focus/scroll. The viewer accepts only typed parent visibility and Escape messages from that exact origin/window; it does not evaluate commands or perform live operations.
 
 ## Reusing the infrastructure examples
 
