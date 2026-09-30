@@ -1,0 +1,35 @@
+# Local credential cache (DPAPI-encrypted, user+machine bound)
+.creds/
+
+# Local working notes, not published
+.ai/
+
+# PowerShell transcript logs
+out/*.log
+
+# Generated test output, converted images, and local tools
+out/
+
+# Terraform local state, provider cache, plan output, and environment-specific values
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.tfvars
+!*.tfvars.example
+
+# Large local installation and driver media
+DRIVERS/
+media/
+
+# Presentation media is small, deliberate, and has to travel with the deck.
+!capstone/media/
+!capstone/media/**
+
+# Guide screenshots are part of the document and have to travel with it.
+!guide/media/
+!guide/media/**
+
+# Editor / OS noise
+.DS_Store
+Thumbs.db

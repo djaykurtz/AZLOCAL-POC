@@ -1,0 +1,26 @@
+; EditorConfig for the Azure Local POC workspace.
+; Keeps everything pure ASCII, LF line endings, no BOM, so files
+; round-trip cleanly through PowerShell, terminals, and tickets.
+
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+
+[*.md]
+indent_size = 2
+; ASCII only - no smart quotes, em-dashes, or other typography unicode.
+; Use - instead of em-dash, ' instead of smart quotes, ... instead of ellipsis.
+
+[*.yml]
+indent_size = 2
+
+[*.json]
+indent_size = 2
+
+[*.txt]
+indent_size = 2

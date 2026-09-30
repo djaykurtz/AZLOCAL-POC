@@ -1,0 +1,1049 @@
+/*
+ * Director's cut intro, lifted from the v1 prototype so v2 can play it before movement 00.
+ *
+ * The intro is the chaos. Requirements, parts that did not fit, and ports wired
+ * to the wrong fabric. It ends on a starting line, and that is exactly where v2 picks up with
+ * four machines finally available to build on.
+ *
+ * Loaded after styles.css and scoped to .intro, so the older palette this artwork was drawn
+ * against lives here rather than leaking into the v2 console.
+ */
+
+.intro {
+  --orange: #fe6e00;
+  --green: #00c758;
+  --amber: #edb200;
+  --cyan: #35e0e8;
+  --vine: #3f9a63;
+  --vine-soft: #8fd6a8;
+}
+
+.intro {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  opacity: 0;
+  visibility: hidden;
+  background: radial-gradient(1400px 700px at 50% 42%, #16161a 0%, #0a0a0b 62%, #050506 100%);
+  transition: opacity 600ms ease, visibility 600ms;
+  /* Children like .intro-slate set visibility: visible, which survives a hidden parent and keeps
+     hit testing the whole viewport. Gate pointer events on the layer instead. */
+  pointer-events: none;
+}
+
+.intro.on { opacity: 1; visibility: visible; pointer-events: auto; }
+
+/* Launched from the gate, the intro must already be solid when the gate starts to fade. */
+.intro.instant { transition: none; }
+
+.intro-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 64px;
+  background: #050506;
+  z-index: 3;
+}
+
+.intro-bar-top { top: 0; }
+.intro-bar-bottom { bottom: 0; }
+
+.intro-stage {
+  position: absolute;
+  inset: 64px 0 64px 0;
+  overflow: hidden;
+  transition: filter 900ms ease, opacity 520ms ease;
+}
+
+.intro-stage.closing { filter: saturate(0.7); }
+
+/* The curtain between trials. Everything the trial left on screen holds while the presenter
+   talks, then goes to black before the next one opens. */
+.intro-stage.blackout { opacity: 0; }
+
+.intro-field { position: absolute; inset: 0; }
+
+/* ---- narration ---- */
+
+.intro-cap {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 86px;
+  z-index: 4;
+  display: grid;
+  place-items: center;
+  padding: 0 40px;
+  pointer-events: none;
+}
+
+/* Narration arrives in pairs. Fixed slots rather than flow, because a line on its way out still
+   occupies space, and letting it collapse would drag the line that is staying. */
+.intro-cap-block {
+  display: grid;
+  grid-template-rows: 42px 42px;
+  align-items: start;
+  justify-items: center;
+  width: 100%;
+  max-width: 880px;
+  height: 84px;
+}
+
+.intro-cap-text {
+  margin: 0;
+  text-align: center;
+  font-size: 22px;
+  line-height: 1.45;
+  color: #ddd6cd;
+  text-shadow: 0 2px 18px rgba(0, 0, 0, 0.9);
+  opacity: 0;
+  transform: translateY(7px);
+  transition: opacity 380ms ease, transform 420ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+.intro-cap-text.icap-r1 { grid-row: 1; }
+.intro-cap-text.icap-r2 { grid-row: 2; }
+.intro-cap-text.icap-in { opacity: 1; transform: none; }
+.intro-cap-text.icap-out { opacity: 0; transform: translateY(-7px); }
+
+/* Narration stays one colour. Tinting a couplet amber or green to mark a turn read as the text
+   changing colour at random, and colour on running text is the wrong carrier for emphasis. The
+   cards, stamps and slams already do that job. */
+
+/* ---- photo plates ---- */
+
+/* Framed like evidence rather than floated like stock art, so a photograph with a white field
+   does not fight the black behind it. Two sit side by side, offset from centre by their slot. */
+.iplate {
+  position: absolute;
+  top: 32%;
+  left: 50%;
+  z-index: 6;
+  width: 400px;
+  opacity: 0;
+  transform: translateX(calc(-50% + (var(--n) * 430px) - 215px)) translateY(12px);
+  transition: opacity 520ms ease, transform 640ms var(--unfurl);
+}
+
+.iplate.on { opacity: 1; transform: translateX(calc(-50% + (var(--n) * 430px) - 215px)); }
+.iplate.off { opacity: 0; }
+
+/* Fixed height, so the frame occupies the same band whatever the photograph's aspect turns out
+   to be. What the placeholder reserves now is what the real image gets later. */
+.iplate-shot {
+  display: block;
+  box-sizing: border-box;
+  height: 300px;
+  padding: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: #0a0b0e;
+}
+
+/* contain rather than cover. The bracket sits at the extreme edge of these photographs and is the
+   whole point of them, and cover trims the edges to fill the frame. */
+.iplate-shot img { display: block; width: 100%; height: 100%; object-fit: contain; opacity: 0.92; }
+.iplate.pending .iplate-shot img { display: none; }
+
+.iplate.pending .iplate-shot::after {
+  content: "photograph pending";
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  text-align: center;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #4a525c;
+  border: 1px dashed rgba(255, 255, 255, 0.12);
+}
+
+.iplate-cap {
+  display: block;
+  margin-top: 9px;
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ink-dim);
+}
+
+/* ---- act slate ---- */
+
+.intro-slate {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: grid;
+  /* Two children, so align-content rather than align-items. Stretched rows put the subtitle half
+     a screen below its own title, which reads as narration rather than as a slate. */
+  align-content: center;
+  justify-items: center;
+  text-align: center;
+  background: rgba(5, 5, 6, 0.92);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 520ms ease, visibility 520ms;
+}
+
+.intro-slate.on { opacity: 1; visibility: visible; }
+
+.intro-slate-kick {
+  font-family: var(--mono);
+  font-size: 24px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--orange);
+  margin: 0 0 6px;
+}
+
+.intro-slate-title {
+  margin: 0;
+  font-size: 34px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: #cfc8bf;
+}
+
+/* ---- hud ---- */
+
+.intro-hud {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 64px;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 0 28px;
+}
+
+.intro-act {
+  font-family: var(--mono);
+  font-size: 13px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: #6f6a64;
+  flex: 0 0 390px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Fixed slot whether or not anything is in it, so the track never moves when the intro pauses. */
+.intro-state {
+  flex: 0 0 22px;
+  display: flex;
+  gap: 4px;
+  justify-content: center;
+  opacity: 0;
+}
+
+.intro-state i {
+  width: 5px;
+  height: 15px;
+  background: #ff3b30;
+  border-radius: 1px;
+}
+
+.intro-state.on { opacity: 1; animation: intro-pause-blink 1s steps(1, end) infinite; }
+
+@keyframes intro-pause-blink {
+  0%, 55% { opacity: 1; }
+  56%, 100% { opacity: 0.15; }
+}
+
+/* A control hint, not a line of the script. Sits with the Skip button rather than centred under
+   the narration, where a centred sentence reads as the closing line of a slide. */
+.intro-end {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+/* A reserved slot, like the pause lamp. Positioning it against a guessed offset from the right
+   edge put it over the Skip button, and anchoring it to the button put it over the track instead.
+   Sized for the longest string it can hold, which is "Space for Starting line". */
+.intro-prompt {
+  flex: 0 0 200px;
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #cfc8bf;
+  text-align: right;
+  opacity: 0;
+  transition: opacity 220ms ease;
+  pointer-events: none;
+}
+
+.intro-prompt.on { opacity: 1; }
+
+.intro-track { position: relative; flex: 1; height: 3px; background: rgba(255, 255, 255, 0.08); }
+
+/* One checkpoint per act, so a five minute intro can be entered at the part you actually want. */
+.intro-mark {
+  position: absolute;
+  top: 50%;
+  z-index: 1;
+  width: 12px;
+  height: 12px;
+  margin: -6px 0 0 -6px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.38);
+  border-radius: 50%;
+  background: #16161c;
+  cursor: pointer;
+  transition: transform 160ms ease, background 160ms ease, border-color 160ms ease;
+}
+
+.intro-mark:hover { transform: scale(1.35); border-color: #fff; }
+.intro-mark.done { background: var(--orange, #fe6e00); border-color: var(--orange, #fe6e00); }
+.intro-mark.on { background: #fff; border-color: #fff; transform: scale(1.2); }
+
+.intro-fill {
+  display: block;
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, var(--orange), var(--amber));
+}
+
+.intro-skip {
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: transparent;
+  color: #9a938b;
+  font-family: var(--mono);
+  font-size: 13px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  padding: 9px 15px;
+  cursor: pointer;
+  transition: color 180ms ease, border-color 180ms ease;
+}
+
+.intro-skip:hover { color: #f2efe9; border-color: rgba(255, 255, 255, 0.34); }
+
+/* ---- the rack ---- */
+
+.irack {
+  position: absolute;
+  left: 50%;
+  top: 26%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.irack-row { display: flex; gap: 18px; }
+
+/* Offset by half a server plus half a gap, so the two rows interlock like a real rack elevation. */
+.irack-row.offset { margin-left: 84px; }
+
+.irack-small { top: 20%; transform: translateX(-50%) scale(0.78); }
+
+/* Sits high and at full size, because the stamp lands across it rather than under it. */
+.irack-tuck { top: 6%; transform-origin: 50% 0; transform: translateX(-50%); }
+
+/* Wide enough to carry the machine's real name rather than a two digit stub. */
+.iserver {
+  position: relative;
+  width: 150px;
+  opacity: 0;
+  transform: translateY(26px);
+  transition: opacity 520ms ease, transform 620ms var(--unfurl), filter 400ms ease;
+  transition-delay: calc(var(--i) * 110ms);
+}
+
+.iserver.in { opacity: 1; transform: none; }
+
+.iserver-face {
+  position: relative;
+  height: 56px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 2px;
+  background: linear-gradient(180deg, #191a1d, #101012);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+}
+
+.iserver-led {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #3a3a3e;
+  flex: none;
+}
+
+.iserver-bays { display: flex; gap: 4px; flex: 1; }
+
+.iserver-bays i {
+  flex: 1;
+  height: 28px;
+  border-radius: 1px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.iserver-name {
+  display: block;
+  margin-top: 7px;
+  text-align: center;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: #6f6a64;
+}
+
+.iserver.bad .iserver-face {
+  animation: iserver-shake 460ms ease 2;
+  border-color: rgba(251, 44, 54, 0.5);
+}
+
+.iserver.bad .iserver-led { background: var(--red); box-shadow: 0 0 8px rgba(251, 44, 54, 0.8); }
+
+@keyframes iserver-shake {
+  0%, 100% { transform: none; }
+  20% { transform: translateX(-3px) rotate(-0.7deg); }
+  50% { transform: translateX(3px) rotate(0.7deg); }
+  80% { transform: translateX(-2px); }
+}
+
+.iserver.good .iserver-face { border-color: rgba(0, 199, 88, 0.45); }
+.iserver.good .iserver-led { background: var(--green); box-shadow: 0 0 8px rgba(0, 199, 88, 0.8); }
+.iserver.good .iserver-bays i { background: rgba(0, 199, 88, 0.14); border-color: rgba(0, 199, 88, 0.28); }
+
+.iserver.donor .iserver-face { border-color: rgba(237, 178, 0, 0.55); }
+
+/* Declared after .in so a benched node stays dimmed. */
+.iserver.dark { opacity: 0.2; filter: grayscale(1); }
+.iserver.dark .istamp { opacity: 0.5; }
+
+/* ---- requirement banners ---- */
+
+.intro-banners {
+  position: absolute;
+  left: 40px;
+  top: 13%;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  max-width: 495px;
+}
+
+.ibanner {
+  border-left: 2px solid var(--cyan);
+  background: rgba(53, 224, 232, 0.05);
+  padding: 8px 14px;
+  opacity: 0;
+  transform: translateX(-24px);
+  transition: opacity 420ms ease, transform 420ms var(--grow);
+}
+
+.ibanner.on { opacity: 1; transform: none; }
+
+.ibanner-text { margin: 0; font-size: 16px; line-height: 1.4; color: #d3e9ea; }
+
+.ibanner-src {
+  margin: 3px 0 0;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: #5d7d80;
+}
+
+/* ---- stamps ---- */
+
+.istamp {
+  position: absolute;
+  left: 50%;
+  top: 40%;
+  z-index: 7;
+  transform: translate(-50%, calc(-50% + var(--sy, 0px))) rotate(var(--rot)) scale(2.4);
+  padding: 6px 16px;
+  border: 3px solid var(--red);
+  border-radius: 3px;
+  color: var(--red);
+  font-family: var(--mono);
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  opacity: 0;
+  transition: transform 220ms cubic-bezier(0.2, 1.6, 0.4, 1), opacity 160ms ease;
+}
+
+/* Sit across the lower face rather than over the middle, so the bays and the node number
+   both stay readable underneath. */
+.iserver .istamp {
+  top: 74%;
+  font-size: 8.5px;
+  letter-spacing: 0.02em;
+  padding: 2px 5px;
+  border-width: 1px;
+  max-width: 106px;
+  background: rgba(12, 10, 10, 0.86);
+}
+
+.istamp.on { opacity: 0.94; transform: translate(-50%, calc(-50% + var(--sy, 0px))) rotate(var(--rot)) scale(1); }
+.istamp.off { opacity: 0; transform: translate(-50%, calc(-140% + var(--sy, 0px))) rotate(var(--rot)) scale(0.9); }
+
+/* Lands across the machines it is stamping, which is also why they do not need shrinking. */
+.istamp-big {
+  top: 15%;
+  padding: 10px 26px;
+  border-width: 4px;
+  font-size: 30px;
+  letter-spacing: 0.1em;
+}
+
+/* A stamp placed on the diagram it is judging rather than thrown at the field. Kept as its own
+   class rather than a descendant rule, because the small per-node stamps are also descendants of
+   the rack and an equally specific rule would silently blow them up. */
+.istamp-over {
+  top: 50%;
+  font-size: 21px;
+  padding: 8px 20px;
+  border-width: 3px;
+  background: rgba(8, 10, 12, 0.84);
+}
+
+.istamp-green { border-color: var(--green); color: var(--green); }
+.istamp-amber { border-color: var(--amber); color: var(--amber); }
+
+/* ---- caveat cards, they pile up on purpose ---- */
+
+.icard {
+  position: absolute;
+  left: var(--x);
+  top: var(--y);
+  z-index: 6;
+  width: 15%;
+  min-width: 150px;
+  padding: 10px 12px;
+  background: #f4f1ea;
+  color: #2b2723;
+  font-size: 12px;
+  line-height: 1.4;
+  border-radius: 2px;
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.55);
+  opacity: 0;
+  transform: translateY(60px) rotate(var(--rot)) scale(0.86);
+  transition: opacity 300ms ease, transform 460ms var(--unfurl);
+}
+
+.icard::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--orange);
+}
+
+.icard.on { opacity: 1; transform: rotate(var(--rot)); }
+
+.icard.off {
+  opacity: 0;
+  transform: translateY(-70px) rotate(calc(var(--rot) * 3)) scale(0.8);
+  transition: opacity 340ms ease, transform 420ms ease;
+}
+
+/* The bad news equivalent of the celebration. Scale is the signal, the rattle is the mood, and
+   both stay inside the card's own bounds so a dropped frame costs nothing. */
+.icard.islam { z-index: 9; }
+.icard.islam::before { background: var(--red); width: 5px; }
+
+.icard.islam.hit {
+  animation: islam-hit 1100ms cubic-bezier(0.2, 0.9, 0.25, 1) both;
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.7), 0 0 0 2px rgba(251, 44, 54, 0.55);
+}
+
+@keyframes islam-hit {
+  0%   { transform: rotate(var(--rot)) scale(1); }
+  8%   { transform: rotate(var(--rot)) scale(1.22) translateX(-9px); }
+  16%  { transform: rotate(var(--rot)) scale(1.2) translateX(9px); }
+  24%  { transform: rotate(var(--rot)) scale(1.18) translateX(-7px); }
+  32%  { transform: rotate(var(--rot)) scale(1.16) translateX(6px); }
+  40%  { transform: rotate(var(--rot)) scale(1.14) translateX(-4px); }
+  48%  { transform: rotate(var(--rot)) scale(1.13) translateX(3px); }
+  60%  { transform: rotate(var(--rot)) scale(1.12) translateX(0); }
+  100% { transform: rotate(var(--rot)) scale(1.1) translateX(0); }
+}
+
+/* ---- the traced wiring map ---- */
+
+/* Below the wire diagram it explains, not on top of it. */
+.imap {
+  position: absolute;
+  right: 44px;
+  top: 45%;
+  z-index: 7;
+  transform: translateY(18px);
+  padding: 16px 22px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 2px;
+  background: #0a0b0e;
+  font-family: var(--mono);
+  font-size: 15px;
+  opacity: 0;
+  transition: opacity 460ms ease, transform 620ms var(--unfurl);
+}
+
+.imap.on { opacity: 1; transform: none; }
+
+.imap-head, .imap-row { display: grid; grid-template-columns: 54px 250px 250px; gap: 14px; padding: 5px 0; }
+.imap-head { color: #6f7a86; border-bottom: 1px solid rgba(255, 255, 255, 0.12); margin-bottom: 5px; padding-bottom: 7px; }
+.imap-row { color: #b9c4cf; }
+.imap-row span:first-child { color: #edeae4; }
+
+/* Node 02's Port4 is a different OUI, because that card came out of node 05. */
+.imap-row.odd span:last-child { transition: color 500ms ease, background 500ms ease; }
+.imap.reveal .imap-row.odd span:last-child {
+  color: #ffd166;
+  background: rgba(237, 178, 0, 0.14);
+  box-shadow: inset 2px 0 0 var(--amber, #edb200);
+  padding-left: 5px;
+}
+
+/* ---- the step list ---- */
+
+.iscroll {
+  position: absolute;
+  left: 50%;
+  top: 12%;
+  transform: translateX(-50%);
+  width: 560px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.015);
+}
+
+.iscroll-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 9px 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.iscroll-cap, .iscroll-count {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: #6f6a64;
+}
+
+.iscroll-count { color: var(--orange); }
+
+.iscroll-view { height: 240px; overflow: hidden; padding: 6px 0; }
+
+.iscroll-list { transition: transform 220ms linear; }
+
+.istep {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 30px;
+  padding: 0 14px;
+  opacity: 0.3;
+  transition: opacity 200ms ease;
+}
+
+.istep.done { opacity: 1; }
+
+.istep-n {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: #5d5852;
+  flex: none;
+  width: 22px;
+}
+
+.istep.done .istep-n { color: var(--vine-soft); }
+
+.istep-name { font-size: 13px; color: #cfc8bf; }
+
+.istep-redact {
+  display: block;
+  height: 7px;
+  border-radius: 1px;
+  background: rgba(255, 255, 255, 0.09);
+}
+
+.istep.done .istep-redact { background: rgba(143, 214, 168, 0.22); }
+
+/* ---- the setup menu ---- */
+
+/* Generic Server Core tooling, drawn plainly, because the point is how ordinary it looks. */
+.imenu {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -46%) scale(0.97);
+  min-width: 494px;
+  padding: 18px 0 16px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 2px;
+  background: #0a0b0e;
+  font-family: var(--mono);
+  font-size: 16.9px;
+  color: #b9c4cf;
+  opacity: 0;
+  transition: opacity 480ms ease, transform 640ms var(--unfurl), border-color 500ms ease;
+}
+
+.imenu.on { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+.imenu.off { opacity: 0.18; }
+
+.imenu-head {
+  padding: 0 26px 16px;
+  margin-bottom: 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  color: #edeae4;
+  letter-spacing: 0.06em;
+}
+
+.imenu-row { padding: 6.5px 26px; }
+.imenu-row span { display: inline-block; width: 34px; color: #5f6873; }
+
+/* Item six. It looks exactly like every other line, which is the whole problem. */
+.imenu-hot { transition: background 600ms ease, color 600ms ease; }
+
+.imenu.armed { border-color: rgba(251, 44, 54, 0.5); }
+.imenu.armed .imenu-hot { background: rgba(251, 44, 54, 0.16); color: #ff8a90; }
+.imenu.armed .imenu-hot span { color: #ff8a90; }
+
+/* ---- parts ---- */
+
+.ipart {
+  position: absolute;
+  left: 50%;
+  top: 62%;
+  transform: translate(-50%, 40px);
+  padding: 14px 22px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 2px;
+  background: linear-gradient(180deg, #1c1d20, #111113);
+  text-align: center;
+  opacity: 0;
+  transition: opacity 420ms ease, transform 560ms var(--unfurl);
+}
+
+.ipart.on { opacity: 1; transform: translate(-50%, 0); }
+
+.ipart.eject {
+  opacity: 0;
+  transform: translate(-50%, -220px) rotate(14deg);
+  transition: opacity 520ms ease, transform 700ms cubic-bezier(0.3, -0.4, 0.7, 1);
+}
+
+.ipart-good { border-color: rgba(0, 199, 88, 0.45); }
+
+/* Drops clear of the photograph band, staying above the caption. */
+.ipart-low { top: 78%; }
+
+/* The carrier card is a proposed answer, not a fact, so it sits apart from the rack in the empty
+   top right and says so. Larger than a plain part card because it is the only thing up there. */
+.ipart-solution {
+  left: auto;
+  right: 44px;
+  top: 12%;
+  transform: translate(0, 40px);
+  padding: 17px 26px;
+  border-color: rgba(237, 178, 0, 0.4);
+  text-align: right;
+}
+
+.ipart-solution.on { transform: translate(0, 0); }
+.ipart-solution.eject { transform: translate(0, -220px) rotate(14deg); }
+
+.ipart-kick {
+  display: block;
+  margin-bottom: 5px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--amber, #edb200);
+}
+
+.ipart-solution .ipart-name { font-size: 18px; }
+
+.ipart-name { display: block; font-size: 15px; color: #e6e2db; }
+
+.ipart-sub {
+  display: block;
+  margin-top: 4px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #6f6a64;
+}
+
+/* ---- the wire ---- */
+
+/* Sits in the right half so the requirement banners down the left have their own column. */
+.iwire {
+  position: absolute;
+  right: 44px;
+  top: 13%;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px 60px;
+  width: 520px;
+  opacity: 0;
+  transition: opacity 500ms ease;
+}
+
+.iwire.on { opacity: 1; }
+
+.iwire-sw {
+  border: 1px solid rgba(53, 224, 232, 0.3);
+  background: rgba(53, 224, 232, 0.05);
+  padding: 12px 16px;
+  text-align: center;
+}
+
+.iwire-sw span { display: block; font-size: 15px; color: #d3e9ea; }
+
+.iwire-sw em {
+  display: block;
+  margin-top: 3px;
+  font-family: var(--mono);
+  font-style: normal;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  color: #5d7d80;
+}
+
+.iwire-nodes { grid-column: 1 / -1; display: flex; justify-content: center; gap: 14px; }
+
+.iwire-n {
+  width: 96px;
+  padding: 9px 0 8px;
+  text-align: center;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: #131315;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: #9a938b;
+  transition: border-color 300ms ease, color 300ms ease;
+}
+
+.iwire-n b { display: block; font-weight: 500; }
+
+.iwire-ports {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 5px;
+  font-style: normal;
+}
+
+.iwire-ports s {
+  text-decoration: none;
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  color: #5d5852;
+  transition: color 300ms ease, transform 420ms var(--unfurl);
+}
+
+/* The cables never moved. Windows enumerated the two ports in the opposite order. */
+.iwire-n.swapped { border-color: rgba(251, 44, 54, 0.55); color: #ffb4b8; }
+.iwire-n.swapped .iwire-ports { flex-direction: row-reverse; }
+.iwire-n.swapped .iwire-ports s { color: var(--red); }
+
+.iwire-n.ok { border-color: rgba(0, 199, 88, 0.5); color: var(--vine-soft); }
+.iwire-n.ok .iwire-ports { flex-direction: row; }
+.iwire-n.ok .iwire-ports s { color: var(--vine); }
+
+/* ---- close ---- */
+
+.iclose {
+  position: absolute;
+  left: 50%;
+  top: 42%;
+  transform: translate(-50%, -50%) scale(0.94);
+  text-align: center;
+  opacity: 0;
+  transition: opacity 700ms ease, transform 900ms var(--grow);
+}
+
+.iclose.on { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+
+.iclose-kick {
+  margin: 0 0 10px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: #6f6a64;
+}
+
+.iclose-big {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 84px;
+  line-height: 1;
+  font-weight: 600;
+  letter-spacing: -0.04em;
+  color: #f2efe9;
+}
+
+.iclose-sub { margin: 14px 0 0; font-size: 15px; color: #8b847c; }
+
+@media (prefers-reduced-motion: reduce) {
+  .iserver, .icard, .istamp, .ipart, .iclose, .ibanner { animation: none !important; transition: opacity 200ms ease !important; }
+  .iserver { opacity: 1; transform: none; }
+  .iserver.bad .iserver-face { animation: none !important; }
+}
+
+/* ---- start gate ---- */
+
+/* Orange is the work pathway everywhere else in the deck. Spending it on the title card gave it a
+   second meaning before the legend had taught the first one. */
+.gate {
+  --azure: #50e6ff;
+  --azure-deep: #0078d4;
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: grid;
+  place-items: center;
+  padding: 40px;
+  background: radial-gradient(1200px 640px at 50% 38%, #15181f 0%, #0a0b0d 64%, #050506 100%);
+  opacity: 1;
+  transition: opacity 500ms ease;
+}
+
+.gate.off { opacity: 0; pointer-events: none; }
+.gate[hidden] { display: none; }
+
+.gate-box { max-width: 805px; text-align: left; }
+
+/* The header's mark, beside the title rather than above it, and at the header's own proportions.
+   Every height, the stroke width and the gap are the 15.6px original scaled by one number. */
+.gate-mark {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  height: 26px;
+  flex: none;
+}
+
+.gate-mark i {
+  display: block;
+  width: 4px;
+  background: currentColor;
+  transform-origin: 50% 100%;
+  animation: gate-mark-rise 620ms var(--unfurl) backwards;
+}
+
+.gate-mark i:nth-child(1) { height: 12px; color: var(--k-net);     animation-delay: 80ms; }
+.gate-mark i:nth-child(2) { height: 18px; color: var(--k-storage); animation-delay: 170ms; }
+.gate-mark i:nth-child(3) { height: 26px; color: var(--k-control); animation-delay: 260ms; }
+.gate-mark i:nth-child(4) { height: 20px; color: var(--k-orch);    animation-delay: 350ms; }
+.gate-mark i:nth-child(5) { height: 14px; color: var(--k-work);    animation-delay: 440ms; }
+
+@keyframes gate-mark-rise {
+  from { transform: scaleY(0); opacity: 0; }
+  to   { transform: scaleY(1); opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gate-mark i { animation: none; }
+}
+
+.gate-kick {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 0 0 16px;
+  font-family: var(--mono);
+  font-size: 21px;
+  font-weight: 700;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--azure);
+}
+
+.gate-title {
+  margin: 0 0 14px;
+  font-size: 35px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+  color: #f2efe9;
+}
+
+.gate-sub {
+  margin: 0 0 34px;
+  font-size: 23px;
+  line-height: 1.55;
+  color: #a9a29a;
+}
+
+.gate-opt {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 30px;
+  padding: 20px 23px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  cursor: pointer;
+}
+
+.gate-opt:hover { border-color: rgba(255, 255, 255, 0.3); }
+
+.gate-opt input {
+  margin: 0;
+  width: 22px;
+  height: 22px;
+  accent-color: var(--azure-deep);
+  flex: none;
+  cursor: pointer;
+}
+
+.gate-opt-text { display: block; }
+.gate-opt-text strong { display: block; font-size: 21px; font-weight: 500; color: #ece8e1; }
+
+.gate-opt-text em {
+  display: block;
+  margin-top: 6px;
+  font-style: normal;
+  font-size: 18px;
+  line-height: 1.5;
+  color: #7d766f;
+}
+
+.gate-go {
+  appearance: none;
+  display: block;
+  margin: 0 auto;
+  border: 1px solid var(--azure);
+  background: transparent;
+  color: var(--azure);
+  font: inherit;
+  font-size: 22px;
+  padding: 17px 56px;
+  cursor: pointer;
+  transition: background 160ms ease, color 160ms ease;
+}
+
+.gate-go:hover,
+.gate-go:focus-visible { background: var(--azure); color: #04131b; outline: none; }
+

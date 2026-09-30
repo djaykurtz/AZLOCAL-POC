@@ -1,0 +1,42 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: azure-local-dashboard
+  labels:
+    app.kubernetes.io/part-of: azure-local-dashboard
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: azure-local-dashboard
+  namespace: azure-local-dashboard
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: dashboard-read-status
+  namespace: azure-local-dashboard
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "services", "configmaps", "events"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["discovery.k8s.io"]
+    resources: ["endpointslices"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: dashboard-read-status
+  namespace: azure-local-dashboard
+subjects:
+  - kind: ServiceAccount
+    name: azure-local-dashboard
+    namespace: azure-local-dashboard
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: dashboard-read-status

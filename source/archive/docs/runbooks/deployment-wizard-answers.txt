@@ -1,0 +1,243 @@
+Azure Local Deployment Wizard - Answer Sheet
+============================================
+
+Created: 2026-07-23  (updated 2026-07-24 with values actually chosen in the wizard)
+Cluster: 4-node POC (AZL-NODE-01/02/04/06); nodes 03/05 excluded.
+Portal path: Azure Arc -> Azure Local -> Deploy Azure Local instance.
+
+NOTE: Field names and page order shift slightly between Azure Local versions.
+The VALUES below are what matter; map them to whatever the current wizard labels.
+Stop at the Validation page and review results before Review + Create.
+
+>>> CURRENT STATE (2026-07-24 PM): Validation call rejected on cluster consistency:
+    node 02 has a Mellanox card with SUBSYS_000615B3 in slot 5 (bus 159), while
+    01/04/06 have SUBSYS_008015B3 in both storage slots. Fix = physically swap
+    node 02's slot 5 card with a matching 008015B3 card harvested from node 05
+    (05 is already benched: it failed the NVMe capacity/type check, so pulling
+    a NIC from it costs nothing). See CARD SWAP RUNBOOK section at bottom.
+--------------------------------------------------------------------------
+BASICS
+--------------------------------------------------------------------------
+Subscription        : contoso-lab-sub  (00000000-0000-0000-0000-000000000001)
+Resource group      : rg-azlocal-poc-001     (NOT the policy-managed security-agent
+                                                 auto-config placeholder RG in this sub)
+Instance name       : AZL-CLUSTER-01             (13 chars, under NetBIOS 15)
+Region              : South Central US          (matches the Arc-connected machines, ADR 0001)
+Cluster options     : Standard                  (not Rack aware)
+Storage options     : Storage Spaces Direct (S2D)
+Identity provider   : Active Directory
+Key Vault           : Select an existing Key Vault -> azl-cluster-01-kv
+                      (created on first attempt; REUSE, do NOT delete -> soft-delete
+                      would reserve name for 90d. Do NOT confuse with kv-lab-secrets
+                      which only holds our LCM password.)
+
+--------------------------------------------------------------------------
+CONFIGURATION
+--------------------------------------------------------------------------
+Configuration type  : New configuration         (build fresh, not from a saved template file)
+
+--------------------------------------------------------------------------
+SECURITY
+--------------------------------------------------------------------------
+Security settings   : Recommended (hardened baseline). BitLocker on (default).
+                      Nodes already have SecureBoot=True, TPM, VBS=2.
+
+--------------------------------------------------------------------------
+MACHINES
+--------------------------------------------------------------------------
+Select machines     : AZL-NODE-01, AZL-NODE-02, AZL-NODE-04, AZL-NODE-06
+                      (all 4 Arc-Connected in the same sub/RG/region)
+
+--------------------------------------------------------------------------
+NETWORKING
+--------------------------------------------------------------------------
+Storage connectivity: Network switch for storage (switched) - NOT switchless
+Networking pattern  : Group management and compute traffic  (2nd option)
+                      (Mgmt+Compute share the Broadcom; Storage isolated on Mellanox)
+
+Intent: Compute_Management
+  Traffic types     : Compute, Management (fixed)
+  Intent name       : Compute_Management (default)
+  Network adapter 1 : Management  (the Broadcom NetXtreme Gigabit; ip 10.10.1.187 on n01)
+                      >>> NIC was renamed today from CORP/Port1/Port2 to 'Management' on
+                      all 4 nodes via Rename-NetAdapter. Same name required cluster-wide.
+
+Intent: Storage
+  Traffic types     : Storage (fixed)
+  Intent name       : Storage (default)
+  Network adapter 1 : Port3  (Mellanox ConnectX-5 Adapter #2)
+  Storage Net 1 VLAN: 711
+  Network adapter 2 : Port4  (Mellanox ConnectX-5 Adapter)     <- click '+ Select another'
+  Storage Net 2 VLAN: 712
+  Do NOT open 'Customize network settings' - defaults are correct.
+
+Nodes and Instance IPs assignments : Manual (static)
+Required IP addresses (info)       : 6
+Starting IP         : 10.10.1.200   (first infra IP = failover cluster IP)
+Ending IP           : 10.10.1.207   (8 total = 6 required + 2 headroom)
+Subnet mask         : 255.255.252.0   (/22)
+Default gateway     : 10.10.1.1
+DNS servers         : 10.20.50.50, 10.20.10.50
+Management VLAN     : <blank> (untagged - mgmt subnet reaches nodes without a tag)
+
+--------------------------------------------------------------------------
+MANAGEMENT SETTINGS
+--------------------------------------------------------------------------
+Custom location     : azl-cluster-01-cl
+AD domain (FQDN)    : corp.example.com
+AD OU (DN)          : OU=AzureLocal,OU=Lab-Systems,OU=EntraSync,OU=Lab,DC=corp,DC=example,DC=com
+Deployment (LCM)    : Username: AZLCL-DEPLOY-ADM  (if it wants domain\user use
+  account             CORP\AZLCL-DEPLOY-ADM). Password: kv-lab-secrets/azlcl-deploy-adm
+                      (= local .creds\azlcl-deploy-adm.cred).
+Local admin         : Username: Administrator. Password: kv-lab-secrets/az-local-poc
+                      (= local .creds\azloc-local-admin.cred). Identical on all 4 nodes.
+                      Note: Azure Local REQUIRES identical local admin cred on all machines
+                      (Microsoft Learn deployment-prerequisites); not our design choice.
+Name/deploy prefix  : AZLPOC   (short prefix used in generated resource names)
+Witness             : No witness  (4-node cluster = node majority; witness optional and
+                                    we intentionally skipped it)
+
+--------------------------------------------------------------------------
+ADVANCED
+--------------------------------------------------------------------------
+Volumes             : Create one workload volume and storage path per machine, and one
+                      required infrastructure volume per system (Recommended)
+                      Thin provisioned. Matches configurationMode=Express from Microsoft's
+                      ARM template.
+
+--------------------------------------------------------------------------
+TAGS (optional but recommended for inventory)
+--------------------------------------------------------------------------
+Match the existing RG tag convention:
+  BusinessUnit        = Lab
+  Environment         = dev
+  Workload            = AzureLocal
+  Purpose             = POC
+  Owner               = platform
+  CreatedBy           = labadmin
+  CreatedDate         = 2026-07-24
+  CostCenter          = PENDING
+
+Do NOT add SkipSecurityMonitoringAgent here (that lives on the Arc machines/RG - already applied).
+
+--------------------------------------------------------------------------
+VALIDATION
+--------------------------------------------------------------------------
+Runs automatically and is NON-DESTRUCTIVE. This is where the storage fabric
+(tagged VLAN 711/712) and all prerequisites get tested for real. If storage
+connectivity fails here, apply the filed fallback:
+  docs/network/storage-fabric-fallback-if-deploy-fails.txt
+  (Option A = untagged access-port 711/712, the proven-good path).
+Review validation output BEFORE proceeding.
+
+--------------------------------------------------------------------------
+REVIEW + CREATE
+--------------------------------------------------------------------------
+Final committing step. Do NOT click until validation is clean and you are ready.
+This configures/wipes the nodes into the cluster; it is hard to reverse.
+
+--------------------------------------------------------------------------
+POST-DEPLOY REMINDERS
+--------------------------------------------------------------------------
+- Infra IP range + DNS servers are set AT DEPLOY and are not a supported easy
+  change afterward (redeploy-class change). Confirm before Review + Create.
+- LCM account (AZLCL-DEPLOY-ADM) password expires 2027-01-17; account expires
+  2027-07-21. Rotate/Extend before then or lifecycle ops break.
+- Do NOT delete the AzureLocal OU after deploy (stores BitLocker recovery keys).
+- Watch the SkipSecurityMonitoringAgent=true tag on the 4 Arc machines + RG - it is what
+  keeps the security monitoring extension from re-claiming the monitoring agent (MA) slot. Do not remove after deploy
+  unless coordinated (would re-collide with Azure Local's own MA).
+
+--------------------------------------------------------------------------
+CARD SWAP RUNBOOK (added 2026-07-24, donor updated to node 05) - unblocks SUBSYS mismatch
+--------------------------------------------------------------------------
+Problem: wizard Trigger deployment settings validation call failed with
+  "DriverVersion, ComponentId, InterfaceDescription, RDMA not matched for edge
+  device AZL-NODE-02 with AZL-NODE-01"
+
+Root cause (proven on-node via Get-PnpDevice hardware IDs):
+  01 Port3+Port4 : both PCI\VEN_15B3&DEV_1017&SUBSYS_008015B3
+  02 Port3       : PCI\VEN_15B3&DEV_1017&SUBSYS_008015B3  (matches, keep)
+  02 Port4 (#2)  : PCI\VEN_15B3&DEV_1017&SUBSYS_000615B3  <-- MISMATCH, replace
+  04, 06         : both PCI\VEN_15B3&DEV_1017&SUBSYS_008015B3
+  03 (spare)     : 2 cards SUBSYS_008015B3 - kept as untouched fallback donor
+  05 (defr)      : 2 REAL cards SUBSYS_008015B3 (see PnP-ghost note below) - DONOR
+
+Donor choice: node 05.
+  Reasoning:
+    - 05 is already disqualified from the cluster because it failed the NVMe
+      check (wrong drive count/type). Removing a NIC from it changes nothing.
+    - 03 remains our clean 2-card fallback if the 05 harvest ever damages the
+      card in transit.
+
+PnP-ghost note (do NOT be confused by the earlier enumeration on 05):
+  The earlier scan showed 4 Mellanox entries on 05 (Adapter, #2, #3, #4).
+  #3 and #4 are STALE PnP records - they share the SAME PCI bus/device/function
+  as the two Up cards (bus 160/159, dev 0, fn 0). Two devices cannot occupy the
+  same PCI address. #3 and #4 are leftover Windows device entries from cards
+  that used to be in those slots. Node 05 has exactly TWO physical Mellanox
+  cards, and both are SUBSYS_008015B3.
+
+Exact card to remove from node 05 (the DONOR):
+  Windows friendly name : Mellanox ConnectX-5 Adapter #2
+  MAC                   : 00-00-5E-00-53-03
+  Windows slot (Get-NetAdapterHardwareInfo.SlotNumber) : 5
+  PCI bus               : 159
+  Location string       : PCI bus 159, device 0, function 0
+  Rationale             : same slot/bus number as the bad card on node 02.
+                          Installing donor into the same physical slot on 02
+                          gives Windows the best chance of enumerating it
+                          back as 'Port4' with no manual rename.
+
+Exact card to remove from node 02 (the BAD card being replaced):
+  Windows friendly name : Mellanox ConnectX-5 Adapter #2
+  MAC                   : 00-00-5E-00-53-02
+  Windows slot (Get-NetAdapterHardwareInfo.SlotNumber) : 5
+  PCI bus               : 159
+  Location string       : PCI bus 159, device 0, function 0
+
+At-rack procedure (smart-hands):
+  1. Verify Dell service tags at rack:
+       Node 02 service tag = (record from the chassis label)
+       Node 05 service tag = (confirm at rack before opening the chassis)
+  2. Power both nodes down gracefully (Stop-Computer or iDRAC graceful shutdown).
+  3. Open node 05, remove the Mellanox card in the SAME physical slot that
+     Windows reported as slot 5 / PCI bus 159 (the port whose MAC is
+     printed on the sticker if visible - both ports of a card share that MAC
+     as the base MAC).
+  4. Open node 02, remove the bad Mellanox card in its slot 5 / PCI bus 159
+     (MAC 00-00-5E-00-53-02). Keep it labeled and set aside; do NOT put it in
+     node 05 (that would just move the problem). Node 05 keeps its one remaining
+     Mellanox card - it is not going anywhere.
+  5. Install the donor card from step 3 into node 02's now-empty slot.
+  6. Cable up node 02's NEW card to the same 100G switch port that the old card
+     used, so the storage-fabric wiring is identical to 01/04/06.
+  7. Power node 02 back on. (Node 05 can stay off - it's benched.)
+  8. Wait for Windows to enumerate (~2-5 min after boot).
+
+Remote post-swap verification (from your workstation):
+  a. Confirm both Mellanox cards on node 02 now report SUBSYS_008015B3:
+       Invoke-Command azl-node-02.lab.example.com -Credential $c -ScriptBlock {
+         Get-PnpDevice -Class Net | ? InstanceId -match 'VEN_15B3' |
+           % { $hw=(Get-PnpDeviceProperty -InstanceId $_.InstanceId -KeyName DEVPKEY_Device_HardwareIds).Data;
+               $sub=($hw|?{$_ -match 'SUBSYS_'}|Select -First 1) -replace '.*SUBSYS_([0-9A-F]+).*','$1';
+               '{0}  SUBSYS={1}  status={2}' -f $_.FriendlyName,$sub,$_.Status } }
+     Expected: both SUBSYS=008015B3, both status=OK.
+  b. Check NIC naming with Get-NetAdapter. If the newly-enumerated card came
+     up as 'Ethernet 7' (or similar) instead of Port4, rename it:
+       Rename-NetAdapter -Name '<new name>' -NewName 'Port4'
+     Also re-verify the 'Management' NIC name is still 'Management' and the
+     other storage NIC is still 'Port3'.
+  c. Refresh Azure edgeDevices inventory on node 02 so the wizard re-reads
+     the new hardware (the cached one is what it validated against):
+       az resource delete --ids /subscriptions/00000000-0000-0000-0000-000000000001/
+         resourceGroups/rg-azlocal-poc-001/providers/Microsoft.HybridCompute/
+         machines/AZL-NODE-02/providers/Microsoft.AzureStackHCI/edgeDevices/default
+         --api-version 2024-04-01
+     Alternative: restart the DeviceManagementService on the node and wait a
+     few minutes for the resource to repopulate.
+  d. Re-open the deployment wizard and click Start validation. It should now
+     get past the cluster consistency preflight and into the on-node
+     Environment Checker (~15 min for 4 machines).
+
+All wizard input values above remain unchanged - no re-entry needed.

@@ -1,0 +1,89 @@
+STORAGE FABRIC - CONTINGENCY OPTIONS (only if Azure Local deploy validation FAILS)
+==================================================================================
+Filed: 2026-07-21
+Owner: platform team (the project engineer)
+
+READ THIS FIRST
+---------------
+Do NOT act on anything in this file pre-emptively, and do NOT take it back to the
+network team as "more things to try." The switch and interface configs were already
+reviewed with the network team and confirmed correct. The plan of record is:
+
+  PROCEED TO THE AZURE LOCAL DEPLOYMENT and let its built-in network validation
+  (the real Network ATC / SET path) be the authoritative test of the storage fabric.
+  Azure Local validation is non-destructive and commits nothing if it fails.
+
+This file is only a triage list to pull from IF that deployment network validation
+actually fails on storage connectivity. Not before.
+
+WHAT WE ALREADY KNOW (proven, not to be re-litigated)
+-----------------------------------------------------
+- Switch + interface configs: reviewed with network team, confirmed correct
+  (mode trunk, 711 on SW1 / 712 on SW2 allowed, no channel-group/LACP, native VLAN 1,
+   mtu 9214, dcbx ieee, PFC priority 3, portfast edge).
+- LACP: removed and verified (0 LACPDUs).
+- Native VLAN: removed and verified (native 1; 711/712 allowed + active + STP forwarding).
+- PROVEN-GOOD PATH: with switch native vlan = 711, UNTAGGED host traffic passed
+  end-to-end - ARP resolved (node02 MAC 00-00-5E-00-53-02) and an 8900-byte DF JUMBO
+  ping ran <1ms. So cabling, links, jumbo/MTU, and the switch's VLAN-711 forwarding
+  fabric are all GOOD.
+- Host side: confirmed correct - Mellanox VLAN tagging enabled (Priority & VLAN
+  Enabled), vSwitch up, VlanId 711/712 applied, static neighbor accepted, ICMP egressing.
+- WHAT DID NOT WORK IN OUR TESTING: 802.1Q TAGGED delivery on both 711 and 712.
+  Static-ARP unicast ping 0/10 both ways on both VLANs. Fault is tag-specific and on the
+  wire (either NIC not tagging on egress, or switch not forwarding tagged between ports).
+- IMPORTANT CAVEAT: our test = single-port external Hyper-V vSwitch + host vNIC tag.
+  Azure Local deploy = Network ATC SET team across both Mellanox ports + SMB/RDMA. Same
+  NDIS Set-VMNetworkAdapterVlan tag-insert mechanism + same physical egress, so our test
+  is likely representative, but it is NOT identical. Azure Local may handle it fine where
+  our emulation did not. That is exactly why the deploy validator is the real arbiter.
+
+CONTINGENCY OPTIONS (pull from these ONLY if deploy network validation fails)
+-----------------------------------------------------------------------------
+Option A - Untagged / access-port storage design (uses the PROVEN-GOOD path)
+  Since untagged-over-native-711 already passed end-to-end (L2 + jumbo), deploy the
+  storage fabric untagged instead of tagged:
+    - Switch: set the storage ports to access mode -
+        SW1 storage ports: switchport access vlan 711
+        SW2 storage ports: switchport access vlan 712
+    - Host / Network ATC: storage intent with NO storage VLAN (VLAN 0 / omit).
+    - The switch handles VLAN membership; the host never tags -> sidesteps the tag issue.
+  TO CONFIRM FIRST: that the Azure Local build in use accepts a storage intent without a
+  storage VLAN ID (access-port topology). Check the deploy wizard / Network ATC intent
+  options before proposing this to the network team.
+
+Option B - Switch-side tag verdict (one read-only check, method-independent)
+  While a tagged test holds traffic on the hosts, on the relevant switch:
+     clear mac address-table dynamic
+     show mac address-table vlan 711        (SW1)   / vlan 712 (SW2)
+  - Host MACs 00-00-5E-00-53-01 (node01) / 00-00-5E-00-53-02 (node02) appear on the VLAN
+    -> NIC is tagging, switch is learning -> forwarding problem between ports.
+  - Absent -> NIC is not putting the 802.1Q tag on the wire (host/NIC-firmware side).
+  Host tooling to hold traffic: scripts/Test-StorageFabricTagged.ps1 (add a hold if needed).
+
+Option C - Silent-discard sweep on the switch (if B shows MACs learned but no forwarding)
+     show interfaces EthernetX/1 counters errors
+     show interfaces EthernetX/1 | include MTU|drops|discard
+     show storm-control
+  Look for input/output discards, CRC/errors, or broadcast/unknown-unicast storm-control
+  suppressing the storage VLAN.
+
+Option D - NIC firmware / VLAN offload (host side, if B shows no MACs learned)
+  WinOF-2 manual (DRIVERS\NVIDIA WinOF-2 Documentation v26.4.50010.pdf, sec 3.3.3.9.1):
+  "Facilities cannot be enabled if the firmware does not support this feature." Confirm
+  the ConnectX-5 firmware supports vSwitch/SET VLAN offload; update WinOF-2/firmware if not.
+  (Physical-adapter VLAN-ID property tagging is ConnectX-6 Dx+ only, so the SET/vSwitch
+   path is the ONLY valid host tagging path on our ConnectX-5 - already using it.)
+
+TEST TOOLING BUILT (reusable, all self-cleaning, storage NIC only, mgmt untouched)
+----------------------------------------------------------------------------------
+- scripts/Test-StorageFabricTagged.ps1  - vSwitch 802.1Q tagged ARP test (711 default; -Vlan 712 -Port Port4)
+- scripts/Test-TaggedStaticPing.ps1     - static-ARP unicast ping (removes broadcast ARP as a variable)
+- scripts/Test-TaggedFrameArrival.ps1   - pktmon capture (NOTE self-egress false-positive trap; trust static ping)
+- scripts/Test-StorageFabric.ps1        - old untagged/physical test (INVALID for tagged on ConnectX-5)
+
+LESSON LOGGED
+-------------
+pktmon MAC filter captures the host's OWN egress frames (dst=peer MAC), so counting
+peer-MAC frames on the sender is NOT proof of cross-switch delivery. Measure actual
+replies (static ping) or capture RX-only on the receiver. The static ping is ground truth.

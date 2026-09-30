@@ -1,0 +1,46 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "workbookDisplayName": {
+      "type": "string",
+      "defaultValue": "Azure Local PoC"
+    },
+    "workbookId": {
+      "type": "string",
+      "defaultValue": "00000000-0000-0000-0000-000000000006",
+      "metadata": { "description": "Stable GUID so re-deploys update the same workbook." }
+    },
+    "serializedData": {
+      "type": "string",
+      "metadata": { "description": "Compressed Notebook/1.0 JSON from funder-workbook-content.json." }
+    },
+    "sourceId": {
+      "type": "string",
+      "defaultValue": "Azure Monitor",
+      "metadata": { "description": "'Azure Monitor' shows it in the Azure Monitor Workbooks gallery." }
+    }
+  },
+  "resources": [
+    {
+      "name": "[parameters('workbookId')]",
+      "type": "Microsoft.Insights/workbooks",
+      "location": "[resourceGroup().location]",
+      "kind": "shared",
+      "apiVersion": "2022-04-01",
+      "properties": {
+        "displayName": "[parameters('workbookDisplayName')]",
+        "serializedData": "[parameters('serializedData')]",
+        "version": "1.0",
+        "sourceId": "[parameters('sourceId')]",
+        "category": "workbook"
+      }
+    }
+  ],
+  "outputs": {
+    "workbookResourceId": {
+      "type": "string",
+      "value": "[resourceId('Microsoft.Insights/workbooks', parameters('workbookId'))]"
+    }
+  }
+}

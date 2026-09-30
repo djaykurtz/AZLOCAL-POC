@@ -1,0 +1,274 @@
+========================================================================
+  AZURE LOCAL POC // KUBERNETES / AKS PRELIMINARY TEST PLAN
+========================================================================
+  Status: PLAN ONLY. Do not execute until Azure Local storage validation,
+  cluster deployment, Arc Resource Bridge, and AKS-on-Azure-Local setup are
+  ready enough for the specific phase.
+
+  Purpose: prove, at POC depth, that Azure Local can host Kubernetes
+  workloads through the recommended AKS-on-Azure-Local path. The goal is to
+  catch likely blockers early and define the test sequence before hardware is
+  ready. This is not a production HA, DR, security-hardening, or performance
+  validation plan.
+
+========================================================================
+  BASE ASSUMPTIONS
+========================================================================
+  Cluster shape:
+    - Default: 4 active nodes, AZL-NODE-01..04.
+    - Optional scale path: 6 nodes, AZL-NODE-01..06, only after nodes
+      05/06 match storage, BIOS, RAM-visible validation, Arc, and network
+      conditions.
+
+  Network posture:
+    - Single converged intent on 10.10.0.0/22.
+    - Corp DNS: 10.20.50.50 and 10.20.10.50.
+    - Avoid Kubernetes-reserved ranges already called out in the network ask:
+      10.96.0.0/12 and 10.244.0.0/16.
+    - Cluster object and Arc Resource Bridge static IPs are still explicit
+      prerequisites. AKS LoadBalancer/VIP IP allocation is a later test gate.
+
+  Existing artifacts:
+    - tests/kubernetes/smoke/00-namespace.yaml
+    - tests/kubernetes/smoke/10-deployment.yaml
+    - tests/kubernetes/smoke/20-service.yaml
+    - scripts/Test-KubernetesManifests.ps1
+    - scripts/Invoke-AksSmokeValidation.ps1
+    - scripts/Invoke-LocalValidation.ps1
+
+  Recommended posture:
+    - Use the recommended AKS-on-Azure-Local deployment/networking path.
+    - Do not invent custom CNI, custom flat L3, production HA, or DR unless
+      a real blocker forces the choice.
+    - Prefer MCR-hosted smoke images because MCR is already in the firewall
+      path and avoids making Docker Hub a POC dependency.
+
+========================================================================
+  SUCCESS CRITERIA
+========================================================================
+  Phase A - pre-cluster / no-deploy:
+    [ ] Kubernetes manifests pass static validation.
+    [ ] kubectl client dry-run passes when kubectl is installed.
+    [ ] Test image source is reachable from DevBox or lab nodes where tested.
+    [ ] AKS-required firewall endpoints are documented and ready for network
+        confirmation.
+
+  Phase B - post Azure Local cluster / pre-AKS:
+    [ ] Azure Local cluster is healthy enough to proceed.
+    [ ] Arc Resource Bridge is deployed/healthy.
+    [ ] Custom location is present and connected.
+    [ ] AKS prerequisites/providers/extensions are available.
+    [ ] DNS/NTP/ARM/AAD/MCR reachability is confirmed from the node network.
+
+  Phase C - AKS cluster bring-up:
+    [ ] AKS cluster resource exists and reports a healthy/ready state.
+    [ ] kubeconfig is obtained and points at the intended cluster.
+    [ ] kubectl get nodes returns expected nodes in Ready state.
+    [ ] kube-system pods settle without CrashLoopBackOff/ImagePullBackOff.
+
+  Phase D - workload smoke:
+    [ ] Namespace, Deployment, and Service apply successfully.
+    [ ] Two or more pods become Ready.
+    [ ] Image pulls from MCR.
+    [ ] Scaling works.
+    [ ] Deleting one pod results in a replacement Ready pod.
+    [ ] ClusterIP smoke passes first; LoadBalancer exposure passes when VIP
+        path exists, or pending VIP is documented as the remaining blocker.
+
+========================================================================
+  PHASE A // NO-DEPLOY PREFLIGHT (RUN NOW)
+========================================================================
+  Commands:
+    .\scripts\Invoke-LocalValidation.ps1
+    .\scripts\Test-KubernetesManifests.ps1
+
+  Current expected behavior:
+    - Invoke-LocalValidation should pass static Kubernetes checks even if
+      kubectl is missing.
+    - Test-KubernetesManifests requires kubectl and should be treated as a
+      workstation-readiness test, not an Azure Local test.
+
+  What this catches before hardware:
+    - Manifest object shape errors.
+    - Broken namespace/deployment/service relationship.
+    - Missing kubectl on the machine intended for AKS operations.
+    - Accidental dependence on non-approved registries.
+
+  Workarounds:
+    - Keep static validation in Invoke-LocalValidation so missing kubectl
+      does not hide manifest regressions.
+    - Install kubectl before execution day.
+    - Keep the starter image on mcr.microsoft.com.
+
+========================================================================
+  PHASE B // POST-CLUSTER AKS READINESS CHECKS (FUTURE)
+========================================================================
+  Execute only after Azure Local cluster deployment completes.
+
+  Checks to plan:
+    1. Confirm active cluster/resource state in Azure portal or CLI.
+       Evidence:
+         - Cluster name, resource group, region, provisioning/connection state.
+
+    2. Confirm custom location and Arc Resource Bridge health.
+       Evidence:
+         - Custom location name.
+         - Arc Resource Bridge VM/IP.
+         - Connected/healthy status.
+
+    3. Confirm node/network reachability before AKS creation.
+       Command shape:
+         .\scripts\Test-Reachability.ps1 -NodeFqdns azl-node-01.lab.example.com,azl-node-02.lab.example.com,azl-node-03.lab.example.com,azl-node-04.lab.example.com
+       Expected:
+         - ARM, AAD, Arc, MCR, PSGallery reachable enough to prove HTTPS path.
+
+    4. Confirm AKS endpoint firewall category is allowed or ready.
+       Must include, at minimum:
+         - *.azmk8s.io
+         - raw.githubusercontent.com
+         - github.com
+         - registry.k8s.io
+         - mcr.microsoft.com
+
+  Likely blockers:
+    - Arc Resource Bridge unhealthy.
+    - Missing/static IPs for cluster object or ARB.
+    - Firewall allows Arc but not AKS/k8s image endpoints.
+    - DNS resolves internally but node network cannot reach public endpoints.
+
+  Workarounds:
+    - Do not start AKS creation until ARB/custom location is healthy.
+    - Re-run reachability from the node network, not only the DevBox.
+    - Use MCR-hosted smoke images first; avoid Docker Hub dependency.
+
+========================================================================
+  PHASE C // AKS CLUSTER BRING-UP (FUTURE)
+========================================================================
+  Intent:
+    Create the smallest useful AKS-on-Azure-Local cluster through the
+    recommended Azure Local/AKS path, then immediately validate node and
+    system-pod readiness. This plan intentionally avoids production-grade
+    add-ons unless they are required for the POC to function.
+
+  Day-0 choices to keep boring:
+    - Default/recommended AKS networking path.
+    - Do not overlap 10.96.0.0/12 or 10.244.0.0/16.
+    - Use existing Log Analytics workspace only if the wizard asks and it is
+      low-risk; avoid AllLogs-style diagnostic blast radius.
+    - Use the smallest node/pod footprint that proves scheduling.
+
+  First commands after kubeconfig:
+    kubectl config current-context
+    kubectl get nodes -o wide
+    kubectl get pods -A -o wide
+    kubectl get events -A --sort-by=.lastTimestamp
+
+  Expected:
+    - Context name clearly identifies the POC AKS cluster.
+    - Nodes are Ready.
+    - kube-system pods are Running/Ready or become ready within the timeout.
+
+  Likely blockers:
+    - kubeconfig points to wrong cluster.
+    - Nodes NotReady due CNI/DNS/image pull failures.
+    - System pods ImagePullBackOff because registry endpoint blocked.
+    - DNS/CoreDNS issues.
+
+  Workarounds:
+    - Always print current-context before applying anything.
+    - Capture system pods/events before deleting/retrying resources.
+    - If LoadBalancer/VIP is not ready, proceed with ClusterIP workload smoke
+      to isolate scheduling/image-pull from service-exposure issues.
+
+========================================================================
+  PHASE D // WORKLOAD SMOKE (FUTURE)
+========================================================================
+  First pass: ClusterIP, scheduling-only proof.
+    .\scripts\Invoke-AksSmokeValidation.ps1 -ServiceType ClusterIP -Replicas 2
+
+  Second pass: LoadBalancer, service exposure proof.
+    .\scripts\Invoke-AksSmokeValidation.ps1 -ServiceType LoadBalancer -Replicas 2
+
+  4-node scheduling observation:
+    .\scripts\Invoke-AksSmokeValidation.ps1 -ServiceType ClusterIP -Replicas 4
+
+  Optional 6-node scheduling observation:
+    .\scripts\Invoke-AksSmokeValidation.ps1 -ServiceType ClusterIP -Replicas 6
+
+  What to capture:
+    - out/_aks-smoke-*.txt from Invoke-AksSmokeValidation.
+    - kubectl get nodes -o wide.
+    - kubectl get pods -n azloc-poc-smoke -o wide.
+    - kubectl get service -n azloc-poc-smoke -o wide.
+    - kubectl get events -n azloc-poc-smoke --sort-by=.lastTimestamp.
+
+  Likely blockers:
+    - ImagePullBackOff from MCR.
+    - PodUnschedulable due resource pressure or taints.
+    - Readiness probe failure.
+    - LoadBalancer external IP stays pending.
+    - DevBox cannot reach LoadBalancer IP even though service gets one.
+
+  Workarounds:
+    - If ImagePullBackOff: validate MCR reachability from node/AKS network.
+    - If PodUnschedulable: reduce replicas to 1, capture describe pod, then
+      inspect node taints/resources.
+    - If readiness fails: port-forward or exec into pod to separate app from
+      network/service issues.
+    - If LoadBalancer pending: keep ClusterIP result as partial success and
+      focus on VIP pool/service controller path.
+    - If DevBox cannot reach service IP: test from inside the node/VM network,
+      then troubleshoot routing/firewall outward.
+
+========================================================================
+  BLOCKER MATRIX
+========================================================================
+  kubectl missing on DevBox:
+    - Impact: cannot run client dry-run or post-AKS checks.
+    - Workaround: static validation still runs; install kubectl before AKS day.
+
+  Wrong kubeconfig context:
+    - Impact: tests apply to wrong cluster.
+    - Workaround: every script/test prints context first; stop if unexpected.
+
+  AKS VIPs not reserved:
+    - Impact: LoadBalancer service exposure likely pending.
+    - Workaround: run ClusterIP first; reserve/fix VIP pool before exposure
+      is treated as failed.
+
+  MCR blocked:
+    - Impact: workload and system image pulls fail.
+    - Workaround: confirm firewall allowlist, pre-stage to approved registry,
+      or choose another already-approved Microsoft-hosted image.
+
+  registry.k8s.io / GitHub blocked:
+    - Impact: AKS setup or system components may fail before workload tests.
+    - Workaround: confirm Category 4 AKS firewall endpoints before creation.
+
+  DNS broken inside cluster:
+    - Impact: image pulls, service discovery, app probes can fail.
+    - Workaround: inspect CoreDNS pods/logs and test nslookup from a debug pod
+      after cluster exists.
+
+  Resource pressure on 4-node POC:
+    - Impact: pods may not schedule or may be evicted.
+    - Workaround: keep workload tiny; reduce replicas; record pressure rather
+      than treating it as production-capacity failure.
+
+========================================================================
+  GO / NO-GO FOR ACTUAL EXECUTION
+========================================================================
+  Go when:
+    - Storage validation passes on AZL-NODE-01..04.
+    - Azure Local cluster is created and healthy.
+    - Arc Resource Bridge/custom location are healthy.
+    - AKS firewall/image endpoints are confirmed or explicitly accepted as
+      the test risk for the day.
+    - kubectl is installed and kubeconfig can be retrieved.
+
+  No-go when:
+    - kubeconfig/current-context cannot be identified safely.
+    - Test would require changing production-like network/security posture.
+    - LoadBalancer result is the only success criterion but VIPs are not
+      reserved/configured yet.
+    - The interpretation drifts into HA/DR/performance claims.

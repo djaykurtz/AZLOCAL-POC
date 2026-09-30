@@ -1,0 +1,6 @@
+# Copy this file to a local ignored .tfvars file. Do not commit real IDs or secrets until the
+# provider-feasibility plan is reviewed.
+custom_location_id  = "/subscriptions/<subscription-id>/resourceGroups/<resource-group>/providers/Microsoft.ExtendedLocation/customLocations/<custom-location-name>"
+image_id            = "/subscriptions/<subscription-id>/resourceGroups/<resource-group>/providers/Microsoft.AzureStackHCI/galleryImages/<image-name>"
+logical_network_id  = "/subscriptions/<subscription-id>/resourceGroups/<resource-group>/providers/Microsoft.AzureStackHCI/logicalNetworks/<logical-network-name>"
+admin_password      = "supply-through-a-secure-local-mechanism"

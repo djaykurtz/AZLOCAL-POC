@@ -1,0 +1,86 @@
+name: Validate POC Source
+
+# Automatic triggers removed 2026-09-24. This repository is owned by a GitHub EMU managed user
+# account, and GitHub-hosted runners are not available to those accounts, so every job below
+# fails in seconds and mails the owner. It has never once passed. The equivalent checks run
+# locally instead, via scripts/Invoke-LocalValidation.ps1 and scripts/Test-RepoPublishSafety.ps1.
+#
+# The file is kept because several documents cite it as the authored-but-never-run CI artifact.
+# Restore the push and pull_request triggers only if this moves to an organisation, or once a
+# self-hosted runner exists and every `runs-on` below is repointed at it.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  terraform-static:
+    name: Terraform Format And Validate
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: tests/terraform/poc-smoke
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+      - name: Check formatting
+        run: terraform fmt -check -recursive
+      - name: Initialize without state backend
+        run: terraform init -backend=false -input=false
+      - name: Validate provider-free module
+        run: terraform validate -no-color
+      - name: Create non-mutating plan
+        run: terraform plan -refresh=false -input=false -lock=false -no-color -var="node_count=4"
+
+  terraform-avm-wrapper:
+    name: Terraform Azure Local VM Wrapper
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: tests/terraform/azlocal-disposable-vm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+      - name: Check formatting
+        run: terraform fmt -check -recursive
+      - name: Initialize module without state backend
+        run: terraform init -backend=false -input=false
+      - name: Validate module schema
+        run: terraform validate -no-color
+
+  kubernetes-static:
+    name: Kubernetes Manifest Validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-kubectl@v4
+      - name: Client-side validate dashboard manifests
+        run: kubectl apply --dry-run=client -f tests/kubernetes/azure-local-dashboard
+      - name: Client-side validate smoke manifests
+        run: kubectl apply --dry-run=client -f tests/kubernetes/smoke
+
+  powershell-parse:
+    name: PowerShell Syntax
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse PowerShell scripts
+        shell: pwsh
+        run: |
+          $errors = @()
+          Get-ChildItem scripts -Filter *.ps1 -Recurse | ForEach-Object {
+            $tokens = $null
+            $parseErrors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$tokens, [ref]$parseErrors) | Out-Null
+            $errors += $parseErrors
+          }
+          if ($errors.Count -gt 0) {
+            $errors | Format-List | Out-String | Write-Error
+            exit 1
+          }

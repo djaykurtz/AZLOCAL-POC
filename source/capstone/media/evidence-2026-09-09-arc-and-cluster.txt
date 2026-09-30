@@ -1,0 +1,49 @@
+AZURE LOCAL POC - ARC MACHINES AND CLUSTER MEMBERSHIP
+Captured 2026-09-09 with scripts/Show-ClusterEvidence.ps1 -Section Arc
+Every command shown is the command that ran. Rerun to check.
+
+==============================================================================
+  Where this is being read from
+  Named before anything is claimed, so the capture carries its own context.
+==============================================================================
+
+PS> az account show --query "{Subscription:name, Id:id, State:state, User:user.name}" -o table
+
+Subscription             Id                                    State    User
+-----------------------  ------------------------------------  -------  --------------------------
+contoso-lab-sub  00000000-0000-0000-0000-000000000001  Enabled  labadmin@example.com
+
+
+==============================================================================
+  Every machine Arc knows about, and which are the cluster
+  Eight registered. Four are Azure Local, two never joined, two are guests it hosts.
+==============================================================================
+
+PS> $kql = "Resources | where type =~ 'microsoft.azurestackhci/clusters'" +
+        " | mv-expand n = properties.reportedProperties.nodes" +
+        " | project key = tolower(tostring(n.name)), Model = tostring(n.model)," +
+        "           GiB = toint(n.memoryInGiB), Class = tostring(n.nodeType)" +
+        " | join kind=rightouter (Resources" +
+        "     | where type =~ 'microsoft.hybridcompute/machines'" +
+        "     | where resourceGroup =~ 'rg-azlocal-poc-001'" +
+        "     | project key = tolower(name), Machine = name, Status = tostring(properties.status)" +
+        "   ) on key" +
+        " | extend Cluster = iff(isnotempty(Model), 'MEMBER', '-')" +
+        " | project Machine, Status, Cluster, Model, GiB, Class" +
+        " | order by Cluster asc, Machine asc"
+az graph query -q $kql --query "data[]" -o table
+
+Machine          Status     Cluster    Model                Class       GiB
+---------------  ---------  ---------  -------------------  ----------  -----
+AZL-NODE-05   Connected  -
+azl-node-03   Connected  -
+rocky-docker-01  Connected  -
+ws2025-core-01   Connected  -
+AZL-NODE-01   Connected  MEMBER     Precision 7960 Rack  ThirdParty  32
+AZL-NODE-02   Connected  MEMBER     Precision 7960 Rack  ThirdParty  32
+AZL-NODE-04   Connected  MEMBER     Precision 7960 Rack  ThirdParty  32
+azl-node-06   Connected  MEMBER     Precision 7960 Rack  ThirdParty  32
+
+==============================================================================
+  Read-only. Nothing above changed anything.
+==============================================================================

@@ -1,0 +1,29 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dashboard-fixture-data
+  namespace: azure-local-dashboard
+data:
+  inventory.json: |
+    {
+      "refreshedAt": "fixture",
+      "cluster": {
+        "name": "AZL-CLUSTER-01",
+        "scope": "Four-node functional POC",
+        "availability": "POC - not production HA"
+      },
+      "hosts": [
+        { "name": "AZL-NODE-01", "status": "Connected" },
+        { "name": "AZL-NODE-02", "status": "Connected" },
+        { "name": "AZL-NODE-04", "status": "Connected" },
+        { "name": "AZL-NODE-06", "status": "Connected" }
+      ],
+      "workloads": [
+        { "name": "ws2025-core-01", "role": "ws2025-core", "status": "Running" },
+        { "name": "azl-cluster-01-aks-01", "role": "kubernetes", "status": "Succeeded" }
+      ],
+      "images": [
+        { "name": "ws2025-azure-edition-core", "status": "Succeeded" },
+        { "name": "ws2025-azure-edition-desktop", "status": "Succeeded" }
+      ]
+    }

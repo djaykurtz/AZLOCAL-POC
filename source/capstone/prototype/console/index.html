@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>What we ran</title>
+<link rel="stylesheet" href="console.css">
+<script src="../shared/runs.js"></script>
+</head>
+<body>
+
+<div class="shell">
+
+  <header class="hdr">
+    <div class="hdr-l">
+      <strong>What we ran</strong>
+      <span class="chip">AZL-CLUSTER-01</span>
+    </div>
+
+    <div class="hdr-r">
+      <div class="seg" id="layoutSeg" role="group" aria-label="Layout">
+        <button type="button" data-layout="split" class="on">Side by side</button>
+        <button type="button" data-layout="stack">Console below</button>
+        <button type="button" data-layout="focus">Console only</button>
+      </div>
+
+      <div class="seg" id="speedSeg" role="group" aria-label="Replay speed">
+        <button type="button" data-speed="1">1x</button>
+        <button type="button" data-speed="6" class="on">6x</button>
+        <button type="button" data-speed="30">30x</button>
+        <button type="button" data-speed="0">Skip</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="stage" id="stage" data-layout="split">
+
+    <section class="claims">
+      <p class="cap">Every run<span>what was typed, and what came back</span></p>
+      <ol class="claim-list" id="claimList"></ol>
+    </section>
+
+    <section class="term">
+      <div class="term-head">
+        <span class="dot"></span>
+        <span class="term-host" id="termHost">no evidence selected</span>
+        <span class="term-note" id="termNote"></span>
+        <button type="button" class="replay" id="btnReplay">Replay</button>
+      </div>
+
+      <div class="term-body" id="termBody">
+        <p class="term-empty">Pick a run. The command runs here, at the pace it originally ran.</p>
+      </div>
+
+      <div class="term-foot">
+        <span id="termFoot"></span>
+      </div>
+    </section>
+
+  </main>
+
+</div>
+
+<script src="console.js"></script>
+</body>
+</html>

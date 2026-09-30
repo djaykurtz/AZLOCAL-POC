@@ -1,0 +1,124 @@
+SECURE BOOT — RECOVERY / ENABLE OPTIONS (Azure Local POC)
+================================================================
+Goal: get nodes to Confirm-SecureBootUEFI=True + VBS=2 so the CRITICAL
+      validator gate (AzStackHci_Hardware_SecureBoot) passes.
+USER DIRECTIVE (2026-07-14): AVOID REIMAGING as long as possible. Try the
+      non-destructive, in-place options first. Reimage is the LAST resort.
+
+ROOT CAUSE (confirmed 2026-07-14, node 03 at KVM):
+  - Tech could NOT boot the USB OS installer with Secure Boot ENABLED, so
+    Secure Boot was DISABLED to install. OS then sealed VBS against
+    Secure-Boot-OFF. It was never re-enabled -> validator CRITICAL fail.
+  - Flipping Secure Boot ON in-place later -> 0xc0430001 black screen
+    (VBS/secure-kernel SEAL MISMATCH; NOT keys, NOT BitLocker).
+  - Node 03 BIOS also observed in a narrowed state: Secure Boot Policy=Custom,
+    UEFI CA Certificate Scope=Device Firmware (firmware-only; excludes the OS
+    bootloader from trust) -> that alone can reject a signed OS boot off USB.
+
+VERIFY (after ANY attempt, from DevBox over WinRM — do NOT trust ping):
+  .\scripts\Test-SecureBootGate.ps1 -Nodes azl-node-03
+  WANT: SecureBoot=True, VBS=2 (running). Matches node 01/02.
+
+RECOVERY IF A NODE BLACK-SCREENS (0xc0430001) — NON-DESTRUCTIVE, NO DATA LOSS:
+  KVM -> F2 -> System BIOS -> System Security -> Secure Boot = Disabled -> F10.
+  Boots normally. (Confirmed on 03 and 05.)
+
+================================================================
+NON-REIMAGE OPTIONS (try in this order) — preferred per user directive
+================================================================
+
+OPTION A — Fix the Custom/firmware-only scope, THEN in-place enable
+  WHY: node 03 was in Policy=Custom + Scope=Device Firmware (OS bootloader not
+       trusted). Correcting to the standard Microsoft keyset may let it boot
+       under Secure Boot without a reseal problem.
+  STEPS (KVM, node at a time):
+    1. F2 -> System BIOS -> System Security -> SECURE BOOT.
+    2. Secure Boot Policy: Custom -> Microsoft(R) Boot (standard MS keyset).
+    3. UEFI CA Certificate Scope: Device Firmware -> Device Firmware and OS.
+    4. Secure Boot = Enabled, Mode = Deployed. F10 save.
+    5. UEFI0074 "policy modified" -> F1 to continue (benign).
+    6. Watch: boots = run VERIFY. Black screen 0xc0430001 = run RECOVERY, go to B.
+  RISK: LOW-MODERATE. Non-destructive; recover by disabling SB. May still hit
+        0xc0430001 if the OS is sealed for SB-off (then scope wasn't the cause).
+
+OPTION B — Restore Factory Secure Boot Keys, THEN in-place enable
+  WHY: clears any stale/custom key state. NOTE: node 03 already showed keys =
+       Microsoft/Deployed, so key corruption is UNLIKELY the cause -> low odds,
+       but harmless to try.
+  STEPS (KVM):
+    1. Secure Boot Policy -> Custom (exposes key management).
+    2. Secure Boot Custom Policy Settings -> Restore Factory Keys / Reset All Keys.
+    3. Secure Boot Policy -> back to Microsoft(R) Boot. Scope=Device Firmware and OS.
+    4. Secure Boot=Enabled, Mode=Deployed. F10. UEFI0074 -> F1.
+    5. VERIFY. If 0xc0430001 -> RECOVERY.
+  RISK: LOW. Non-destructive. Low probability of fixing 0xc0430001 (keys already OK).
+
+OPTION C — Audit Mode install-time, then flip to Deployed  *** TEST ON 03 FIRST ***
+  IDEA: image with Secure Boot in AUDIT MODE (checks but does NOT enforce -> USB
+        boots), then switch to Deployed Mode after install.
+  CAVEAT (be honest): in Audit/SetupMode the SecureBoot UEFI variable typically
+        reads 0, so Confirm-SecureBootUEFI=False and Windows seals VBS as SB-OFF.
+        Flipping to Deployed then changes the measured state -> risks the SAME
+        0xc0430001. Firmware behavior varies; NOT verified on this Dell 7960 build.
+  DECISIVE TEST (cheap, do on expendable node 03):
+    - Install in Audit Mode, boot once, run Confirm-SecureBootUEFI WHILE STILL
+      IN AUDIT MODE.
+      * Returns TRUE  -> Audit->Deployed is viable; proceed and VERIFY.
+      * Returns FALSE -> it's the same seal trap; abandon, don't roll to 04/06.
+  RISK: MODERATE. Involves a (re)install anyway; value is as an experiment to
+        learn whether the transition is safe. Recover via RECOVERY if it bricks.
+  NOTE: this is technically an install path, so only "non-reimage" if applied to
+        a node you're already reinstalling.
+
+OPTION D — Leave Secure Boot OFF, document as known exception (STOPGAP ONLY)
+  REALITY: this does NOT pass. AzStackHci_Hardware_SecureBoot is CRITICAL and
+           blocks deployment. Use only to keep a node usable for other testing
+           while deciding; it is NOT a path to a validated cluster.
+  RISK: none to the node, but the deploy gate stays RED.
+
+================================================================
+REIMAGE OPTIONS (LAST RESORT — only when in-place is exhausted)
+================================================================
+The durable fix for the root cause is to install with Secure Boot ON from first
+boot so VBS seals against SB-on (like node 01). That needs Secure-Boot-clean
+install media so the USB actually boots under Secure Boot.
+
+OPTION E — Rufus FAT32 media, install with Secure Boot ON  *** PRIMARY reimage fix ***
+  WHY: FAT32 boots the Microsoft-signed bootmgfw.efi natively under Secure Boot
+       with ZERO enrolled keys -> no Rufus UEFI:NTFS shim that SB rejects, and no
+       trust-anchor residue (matters for secured-core Azure Local).
+  MEDIA (Rufus): Partition scheme = GPT, Target = UEFI (non-CSM),
+       File system = FAT32. If install.wim > 4GB, let Rufus SPLIT it to
+       install.swm (still SB-clean; Windows Setup reads it fine).
+  BIOS (node): Secure Boot = Enabled, Policy = Microsoft(R) Boot,
+       Mode = Deployed, UEFI CA Certificate Scope = Device Firmware and OS.
+  INSTALL with Secure Boot ON the whole time -> VBS seals SB-on -> no 0xc0430001,
+       validator SecureBoot passes with no post-install toggle.
+  RISK: LOW (best long-term outcome). Cost = a reinstall.
+
+OPTION F — Ventoy + MOK, then DELETE the MOK before deploy  (fallback reimage)
+  WHY Ventoy boots under SB: it uses a shim + enrolled MOK (Machine Owner Key);
+       first boot shows MokManager -> Enroll key/hash -> Ventoy trusted.
+  CONCERN for secured-core Azure Local: the enrolled Ventoy MOK PERSISTS in
+       firmware (MokList) after install = trust-anchor DRIFT the security baseline
+       is meant to prevent. Ventoy also has a documented Secure Boot bypass history.
+  IF USED: after imaging, reboot -> MokManager -> DELETE/clear the MOK, and confirm
+       the node's key state is the plain Microsoft factory set (Policy=Microsoft(R)
+       Boot, Scope=Device Firmware and OS) BEFORE the node goes to deploy.
+  RISK: MODERATE (must remember to clean the MOK). Prefer E unless you need the
+       multi-ISO Ventoy convenience at the bench.
+
+================================================================
+DECISION SHORTLIST
+================================================================
+- Node 03 (expendable, at KVM): try A, then B, in place. If both 0xc0430001 and
+  you want to learn: run the OPTION C Audit-mode Confirm-SecureBootUEFI test.
+- Nodes 04/06 (POC cluster, storage+NIC already GREEN, ONLY SecureBoot red):
+  do NOT gamble in-place. When you accept a reinstall, use OPTION E (Rufus FAT32,
+  SB ON from first boot). That is the clean, repeatable fix.
+- Nodes 01/02: already SecureBoot=True + VBS=2. Do nothing.
+
+RELATED FILES:
+  secureboot_procedure.txt        - quick runbook + DOC SOURCE for the mandate
+  scripts/Test-SecureBootGate.ps1 - full validator + SecureBoot row, per node
+  /memories/repo/azure-local-poc.md - root-cause chain + fleet state

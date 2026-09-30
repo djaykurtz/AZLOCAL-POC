@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Capstone prep</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<header class="top">
+  <div class="brand">Capstone prep</div>
+  <nav class="tracks" id="tracks"></nav>
+  <div class="top-right">
+    <span class="stat" id="stat"></span>
+    <button type="button" class="btn ghost" id="reset" title="Clear all progress">reset</button>
+  </div>
+</header>
+
+<main class="stage">
+
+  <section class="card" id="card">
+    <p class="meta">
+      <span class="num" id="cardNum"></span>
+      <span class="tag" id="cardTrack"></span>
+      <span class="lvl" id="cardLevel"></span>
+      <span class="cid" id="cardId"></span>
+    </p>
+    <h1 class="q" id="q"></h1>
+
+    <p class="prompt" id="prompt">Say the answer out loud, all the way through, before you reveal.</p>
+
+    <div class="answer" id="answer" hidden>
+      <p class="cap">What a good answer covers</p>
+      <ul class="say" id="say"></ul>
+
+      <div id="dia" hidden>
+        <p class="cap">Picture it</p>
+        <pre class="diagram" id="diagram"></pre>
+      </div>
+
+      <div id="cmdWrap" hidden>
+        <p class="cap">At the prompt</p>
+        <div class="console" id="cmds"></div>
+      </div>
+
+      <div id="helpWrap" hidden>
+        <p class="cap">How to look it up yourself</p>
+        <div class="console is-help" id="help"></div>
+      </div>
+
+      <p class="cap">The idea underneath</p>
+      <p class="why" id="why"></p>
+
+      <p class="cap">What we did</p>
+      <p class="ours" id="ours"></p>
+
+      <div id="artWrap" hidden>
+        <p class="artfile" id="artFile"></p>
+        <pre class="artifact" id="artifact"></pre>
+      </div>
+
+      <p class="src" id="src"></p>
+    </div>
+  </section>
+
+  <div class="controls">
+    <button type="button" class="btn wide" id="reveal">Reveal <span class="key">space</span></button>
+    <div class="marks" id="marks" hidden>
+      <button type="button" class="btn good" data-mark="3">Knew it <span class="key">1</span></button>
+      <button type="button" class="btn mid"  data-mark="2">Roughly <span class="key">2</span></button>
+      <button type="button" class="btn bad"  data-mark="1">Not yet <span class="key">3</span></button>
+    </div>
+  </div>
+
+  <p class="hint" id="hint"></p>
+</main>
+
+<script src="deck-kubernetes.js"></script>
+<script src="deck-terraform.js"></script>
+<script src="deck-docker.js"></script>
+<script src="deck-azurelocal.js"></script>
+<script src="deck-project.js"></script>
+<script src="deck-commands.js"></script>
+<script src="deck-artifacts.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,96 @@
+Azure Local POC - CLI/ARM deployment runbook
+============================================
+Purpose: run the Azure Local cluster deploy from a parameter file instead of the
+portal wizard, so inputs are captured once and every run is a single command.
+
+Files:
+  infra/azlocal-deploy.parameters.json   - all deployment inputs (this repo)
+  Template: Microsoft's maintained "create-cluster" quickstart (fetched by URL,
+            we do NOT maintain the template here).
+
+Template URL (raw):
+  https://raw.githubusercontent.com/Azure/azure-quickstart-templates/master/quickstarts/microsoft.azurestackhci/create-cluster/azuredeploy.json
+
+Resource group: rg-azlocal-poc-001
+Subscription  : contoso-lab-sub (00000000-0000-0000-0000-000000000001)
+
+--------------------------------------------------------------------------
+BLOCKERS - must be cleared before a run will succeed
+--------------------------------------------------------------------------
+1. corporate security monitoring agent conflict (HARD BLOCKER)
+   - Corp.Security.MonitoringAgent (the security monitoring extension) holds the single
+     "one MA per system" monitoring-agent slot, so Azure Local Observability (AzureEdgeTelemetryAndDiagnostics)
+     can never enable. Proven on-node:
+       "Another instance of the MA tenant service is already running; you can only
+        run one MA service per system."
+   - Fix: exclude these nodes from the security-agent auto-config policy (so it is not
+     re-pushed), remove the Corp.Security.MonitoringAgent extension, stop
+     the security monitoring extension MonAgent, then deploy. Needs security/directory admins sign-off.
+
+2. Management NIC name inconsistent across nodes (HARD BLOCKER for the intent)
+   - Broadcom mgmt adapter is named:  01='CORP'  02='CORP'  04='Port2'  06='Port1'.
+   - Network intents apply the SAME adapter name to every node. Rename all four
+     mgmt NICs to one common name (this file uses 'Management'):
+       Rename-NetAdapter -Name '<current>' -NewName 'Management'
+     Storage NICs are already consistent (Port3 + Port4 on all nodes).
+
+--------------------------------------------------------------------------
+OPEN TODOs in the parameters file
+--------------------------------------------------------------------------
+- intentList[ManagementCompute].adapter = ['Management']  -> only valid AFTER the
+  mgmt-NIC rename above.
+- Confirm storage port -> VLAN mapping: this file assumes Port3=VLAN711, Port4=VLAN712.
+  Verify which physical Mellanox port cables to SW1(711) vs SW2(712) before Deploy.
+- diagnosticStorageAccountName 'azlclusterdiag' must be globally unique + not already
+  created by the earlier failed attempt. Check first (see cleanup below).
+- Key Vault 'azl-cluster-01-kv' already exists from the failed attempt - reuse it (do
+  NOT delete; soft-delete would reserve the name for 90 days).
+
+--------------------------------------------------------------------------
+PASSWORDS - supplied at deploy, never stored in the file
+--------------------------------------------------------------------------
+localAdminPassword        <- Your configured Key Vault / az-local-poc  (.creds\azloc-local-admin.cred)
+AzureStackLCMAdminPassword<- Key Vault kv-lab-secrets / azlcl-deploy-adm (.creds\azlcl-deploy-adm.cred)
+
+Load them into secure vars (example, from the DPAPI creds this repo already uses):
+  $localAdmin = (New-Object pscredential('x',(ConvertTo-SecureString (Get-Content .\.creds\azloc-local-admin.cred -Raw).Trim()))).GetNetworkCredential().Password
+  $lcm        = (New-Object pscredential('x',(ConvertTo-SecureString (Get-Content .\.creds\azlcl-deploy-adm.cred   -Raw).Trim()))).GetNetworkCredential().Password
+
+--------------------------------------------------------------------------
+RUN - step 1: VALIDATE (non-destructive; safe to repeat)
+--------------------------------------------------------------------------
+  az deployment group create `
+    --resource-group rg-azlocal-poc-001 `
+    --template-uri  https://raw.githubusercontent.com/Azure/azure-quickstart-templates/master/quickstarts/microsoft.azurestackhci/create-cluster/azuredeploy.json `
+    --parameters    infra/azlocal-deploy.parameters.json `
+    --parameters    localAdminPassword=$localAdmin AzureStackLCMAdminPassword=$lcm `
+    --name          azlocal-validate-01
+
+  (parameters file has deploymentMode = Validate.)
+
+Review the deployment result. Validation is the same Environment Checker the portal
+runs. Fix any red items. Warnings are non-blocking.
+
+--------------------------------------------------------------------------
+RUN - step 2: DEPLOY (committing; wipes/configures the nodes into the cluster)
+--------------------------------------------------------------------------
+  - Edit infra/azlocal-deploy.parameters.json: set "deploymentMode" value to "Deploy".
+  - Re-run the SAME command with --name azlocal-deploy-01.
+  - Deploy takes ~2.5-3 hours; "Deploy Moc and ARB Stack" step alone is ~40-45 min.
+
+--------------------------------------------------------------------------
+CLEANUP of leftovers from the failed portal attempt (before a clean run)
+--------------------------------------------------------------------------
+  # inventory what exists
+  az resource list -g rg-azlocal-poc-001 -o table
+  # look for: azl-cluster-01-kv (reuse), any diag storage account, edgeDevices,
+  #           and failed role assignments (Access control (IAM) > Type: Unknown)
+  # The "Role assignment already exists" / zombie role assignment issue is documented;
+  # delete stale/Unknown role assignments in the RG before re-running if it recurs.
+
+--------------------------------------------------------------------------
+STORAGE FABRIC reminder
+--------------------------------------------------------------------------
+Tagged VLAN 711/712 did not pass our static-ARP test. If Validate flags storage
+connectivity, review Option A from archive/docs/network/storage-fabric-fallback-if-deploy-fails.txt
+(untagged access-port 711/712, the proven-good path) and re-Validate.

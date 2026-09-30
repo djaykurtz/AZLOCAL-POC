@@ -1,0 +1,196 @@
+========================================================================
+  AZURE LOCAL POC // NO-DEPLOY TEST DESIGN
+========================================================================
+  Purpose: plan and validate Terraform, Docker, and Kubernetes test
+  mechanisms while hardware is still blocked. These tests are designed to
+  reveal likely deployment blockers early without deploying anything.
+
+  Scope assumptions:
+    - Default cluster shape: 4 nodes, AZL-NODE-01..04.
+    - Optional scale path: 6 nodes, AZL-NODE-01..06.
+    - Scripts and manifests may be authored now; actual deployment waits
+      until storage validation and cluster creation are complete.
+    - This is a proof of concept, not production. Prefer fast proof and
+      clear evidence over HA/DR completeness.
+
+========================================================================
+  TEST LAYER 0 // LOCAL ARTIFACT VALIDATION (RUN NOW)
+========================================================================
+  Command:
+    .\scripts\Invoke-LocalValidation.ps1
+
+  What it checks:
+    - PowerShell parser validity for scripts/*.ps1.
+    - Bicep compilation for infra/*.bicep and infra/modules/*.bicep.
+    - Bicep parameter compilation for infra/*.bicepparam.
+    - Terraform fmt/init/validate for any tests/terraform/*.tf modules.
+    - Dockerfile structure for any Dockerfiles; optional local image build
+      with -BuildDocker.
+    - Kubernetes manifest client-side dry-run when kubectl is present.
+
+  Likely blockers caught early:
+    - Script syntax regressions.
+    - Bicep parameter drift.
+    - Terraform invalid variable validation or module syntax.
+    - Dockerfiles missing FROM or invalid build context.
+    - Kubernetes manifest typos, missing selectors, or invalid object shape.
+
+  Workarounds before hardware exists:
+    - Keep Terraform modules provider-free unless we intentionally need an
+      Azure provider test; provider-free modules validate without network.
+    - Use Microsoft-hosted base/sample images already present in the
+      firewall plan.
+    - Use kubectl --dry-run=client --validate=false so manifests parse even
+      when no cluster/API server exists.
+
+========================================================================
+  TEST LAYER 1 // TERRAFORM POC SURFACE
+========================================================================
+  Current starter module:
+    tests/terraform/poc-smoke/main.tf
+
+  Test purpose:
+    - Prove Terraform is in the POC tooling surface.
+    - Validate 4-node default and 6-node optional scale input shape.
+    - Provide a safe module that never creates Azure resources.
+
+  Commands:
+    terraform -chdir=tests/terraform/poc-smoke fmt -check
+    terraform -chdir=tests/terraform/poc-smoke init -backend=false
+    terraform -chdir=tests/terraform/poc-smoke validate
+    .\scripts\Invoke-TerraformPlanOnly.ps1
+    .\scripts\Invoke-TerraformPlanOnly.ps1 -NodeCount 6
+
+  Current deployment-script design, still no apply:
+    - Invoke-TerraformPlanOnly.ps1 runs fmt/init/validate/plan only.
+    - It supports -NodeCount 4 and -NodeCount 6.
+    - It never runs terraform apply.
+    - Add provider-backed modules only if Bicep is not sufficient for a
+      specific POC target.
+
+  Likely blockers:
+    - Terraform CLI missing.
+    - Provider download blocked by proxy/firewall.
+    - AzureRM provider version drift.
+    - State/backend confusion.
+
+  Workarounds:
+    - Start with provider-free modules for local validation.
+    - Use -backend=false for POC plan-only validation.
+    - Keep provider plugin cache outside source control.
+    - Do not introduce remote state until Terraform becomes a primary
+      deployment path.
+
+========================================================================
+  TEST LAYER 2 // DOCKER POC SURFACE
+========================================================================
+  Current starter Dockerfile:
+    tests/docker/smoke/Dockerfile
+
+  Test purpose:
+    - Prove Dockerfile parsing/build plumbing before AKS exists.
+    - Keep image simple and free of secrets.
+    - Exercise base image pull from Microsoft Container Registry.
+
+  Commands:
+    .\scripts\Invoke-LocalValidation.ps1
+    .\scripts\Invoke-LocalValidation.ps1 -BuildDocker
+    .\scripts\Invoke-DockerSmokeBuild.ps1
+
+  Likely blockers:
+    - Docker Desktop/engine not installed or not running.
+    - Corp proxy blocks MCR image pulls.
+    - Base image not reachable from lab nodes later.
+    - Container requires root unexpectedly.
+
+  Workarounds:
+    - Keep smoke images on mcr.microsoft.com where possible.
+    - Validate MCR reachability from nodes with Test-Reachability.ps1.
+    - Use non-root user in smoke Dockerfiles by default.
+    - Delay registry push tests until ACR/registry choice is explicit.
+
+========================================================================
+  TEST LAYER 3 // KUBERNETES / AKS POC SURFACE
+========================================================================
+  Current starter manifests:
+    tests/kubernetes/smoke/00-namespace.yaml
+    tests/kubernetes/smoke/10-deployment.yaml
+    tests/kubernetes/smoke/20-service.yaml
+
+  Test purpose:
+    - Prove manifests are syntactically valid now.
+    - Later prove AKS on Azure Local schedules, exposes, scales, and
+      recreates a workload.
+    - Keep service exposure as LoadBalancer to test the AKS VIP path once
+      that path exists.
+
+  No-deploy commands now:
+    kubectl apply --dry-run=client --validate=false -f tests/kubernetes/smoke
+    .\scripts\Invoke-LocalValidation.ps1
+    .\scripts\Test-KubernetesManifests.ps1
+
+  Deployment commands later, not now:
+    kubectl apply -f tests/kubernetes/smoke
+    .\scripts\Invoke-AksSmokeValidation.ps1
+
+  Likely blockers:
+    - kubectl missing or wrong context.
+    - AKS VIP/service IP pool not allocated or firewall-blocked.
+    - MCR image pull blocked from AKS nodes.
+    - CoreDNS cannot resolve public or corp names.
+    - LoadBalancer external IP remains pending.
+    - Pod schedules only on some nodes due to taints, pressure, or node
+      readiness issues.
+
+  Workarounds:
+    - Start with client dry-run before cluster exists.
+    - Use ClusterIP mode in Invoke-AksSmokeValidation.ps1 during first AKS
+      bring-up if LoadBalancer VIPs are not ready yet.
+    - Keep image source on MCR and verify with Test-Reachability.ps1.
+    - Capture kubectl get nodes, pods, services, events, and describe output
+      into out/ reports before changing anything.
+
+========================================================================
+  4-NODE DEFAULT VS 6-NODE OPTION
+========================================================================
+  4-node default acceptance:
+    - AZL-NODE-01..04 pass storage validation.
+    - All 4 active nodes show Arc Connected.
+    - AKS nodes Ready after cluster deployment.
+    - Smoke deployment has 2 replicas Ready.
+    - Deleting one pod results in replacement pod Ready.
+    - Service exposure works, or ClusterIP fallback is documented during
+      initial bring-up.
+
+  6-node optional extension:
+    - AZL-NODE-05..06 must match storage, RAM-visible validation, BIOS,
+      Arc, and network conditions before joining.
+    - Re-run hardware and connectivity validation against all 6 nodes.
+    - Re-run Terraform variable validation with node_count=6.
+    - Re-run AKS smoke with enough replicas to observe scheduling beyond the
+      original 4 nodes.
+
+========================================================================
+  BLOCKER-FIRST TEST DESIGN NOTES
+========================================================================
+  Do before cluster deployment:
+    - Local artifact validation.
+    - Terraform validate.
+    - Dockerfile static check; optional Docker build.
+    - Kubernetes client dry-run.
+    - Node outbound reachability to MCR, ARM, AAD, Arc, PSGallery.
+
+  Do immediately after cluster deployment:
+    - Capture cluster resource state and node readiness.
+    - Confirm AKS control plane access.
+    - Run Kubernetes smoke with ClusterIP if LoadBalancer is pending.
+
+  Do after AKS service/VIP path is confirmed:
+    - Run Kubernetes smoke with LoadBalancer.
+    - Capture out/_aks-smoke-*.txt as acceptance evidence.
+
+  Explicitly out of scope for this POC:
+    - Terraform apply automation.
+    - Production HA or DR validation.
+    - Registry promotion pipelines.
+    - Long-running performance benchmarks.

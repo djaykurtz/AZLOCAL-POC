@@ -1,0 +1,10 @@
+{
+  "// purpose": "Recommended extensions for the Azure Local POC planning workspace. VS Code will prompt to install these when the folder is opened.",
+  "recommendations": [
+    "ms-azuretools.vscode-bicep",
+    "ms-azuretools.vscode-azureresourcegroups",
+    "gruntfuggly.todo-tree",
+    "redhat.vscode-yaml",
+    "davidanson.vscode-markdownlint"
+  ]
+}

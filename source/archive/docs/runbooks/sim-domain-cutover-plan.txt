@@ -1,0 +1,158 @@
+SIM DOMAIN CUTOVER PLAN + LOG (2026-07-24)
+==========================================
+
+Purpose: cut Azure Local wizard's AD dependency from corp AD
+(corp.example.com, blocked by policy) over to lab AD
+(sim.example.internal, Domain Admin, full control), then re-run validation.
+
+User: labadmin, has Domain Admin on sim.example.internal (proven live).
+DC target: dc-01.lab.example.com (10.10.1.86, Server 2022, GC, lab site).
+Nodes reach DC on all required ports; DNS already resolves sim.example.internal
+via existing corp DNS. NO NODE-SIDE CHANGES NEEDED.
+
+Naming decisions (to minimize deploymentSettings churn)
+-------------------------------------------------------
+- LCM user SAM stays 'AZLCL-DEPLOY-ADM' (was the corp user). Only the
+  domain part changes (CORP -> SIM).
+- OU path: OU=AzureLocal,OU=Lab Systems,DC=sim,DC=example,DC=internal
+  (mirrors what we tried in corp AD; lives under the existing 'Lab Systems' OU).
+- LCM user placement: CN=AZLCL-DEPLOY-ADM,OU=Service Accounts,OU=Lab Systems,
+  DC=sim,DC=example,DC=internal  (existing Service Accounts OU; user does not
+  need to live inside OU=AzureLocal per Microsoft doc).
+
+ACE recipe (copied verbatim from Microsoft's own
+AsHciADArtifactsPreCreationTool 10.2402 module, lines 244-268):
+  Path            : AD:\OU=AzureLocal,OU=Lab Systems,DC=sim,DC=example,DC=internal
+  Trustee         : SID of SIM\AZLCL-DEPLOY-ADM (direct SID, not via group)
+  Rule 1 (Ace ID) : CreateChild|DeleteChild
+                    ObjectType=bf967a86-0de6-11d0-a285-00aa003049e2 (computer)
+                    InheritanceType=All
+  Rule 2          : ReadProperty
+                    ObjectType=empty (all)
+                    InheritanceType=All
+  Rule 3          : GenericAll
+                    InheritanceType=All
+                    InheritedObjectType=ea715d30-8f53-40d0-bd1e-6109186d782c
+                    (msFVE-RecoveryInformation)
+  Also: block GPO inheritance on the OU (gPOptions=1) via Set-ADObject
+        (avoids GroupPolicy RSAT module dependency, which isn't installed
+        on this DevBox and requires elevation to add).
+
+Password strategy
+-----------------
+- Generate 24-char complex password in memory only.
+- Push to Key Vault kv-lab-secrets as secret sim-lcm-azlcl-deploy-adm.
+- Save DPAPI-encrypted copy to .creds\sim-azlcl-deploy-adm.cred (matches
+  our existing pattern; decryptable only by labadmin on this DevBox).
+- Set PasswordNeverExpires=$true on the LCM user (Azure Local requires
+  a stable password across cluster lifetime).
+- The generated password is NEVER written to a log file or terminal.
+
+Execution phases + expected outcomes
+------------------------------------
+
+Phase A (documentation) - THIS FILE.
+
+Phase B (AD writes on sim.example.internal):
+  B1. Create OU=AzureLocal under OU=Lab Systems.
+      ProtectedFromAccidentalDeletion=$true.
+  B2. Set gPOptions=1 on that OU (block GPO inheritance).
+  B3. Create SIM\AZLCL-DEPLOY-ADM in OU=Service Accounts with generated pw.
+      Enabled=$true, CannotChangePassword=$true, PasswordNeverExpires=$true.
+  B4. Add the 3 direct ACEs from the recipe above to the OU DACL.
+  B5. Push LCM password to KV kv-lab-secrets/sim-lcm-azlcl-deploy-adm.
+  B6. Save DPAPI copy to .creds\sim-azlcl-deploy-adm.cred.
+
+Phase C (verify AD side):
+  C1. Re-read the OU DACL, confirm 3 direct ACEs matching LCM SID present.
+  C2. Bind as AZLCL-DEPLOY-ADM, create+delete throwaway computer object
+      in the OU (proves practical action, same test we did on corp AD).
+  C3. Run Test-AzStackHciExternalActiveDirectory locally (same validator
+      the wizard runs). Expect FullClusterAzStackHci_ExternalActiveDirectory_
+      Test_OrganizationalUnit_* checks to pass.
+
+Phase D (update Azure deploymentSettings):
+  D1. Read current deploymentSettings/default (backup to
+      out/_deploymentSettings-pre-simcutover-<stamp>.json).
+  D2. Rewrite three fields:
+        - properties.deploymentConfiguration.scaleUnits[0].deploymentData.adouPath
+          -> OU=AzureLocal,OU=Lab Systems,DC=sim,DC=example,DC=internal
+        - properties.deploymentConfiguration.scaleUnits[0].deploymentData.domainFqdn
+          -> sim.example.internal
+        - properties.deploymentConfiguration.scaleUnits[0].deploymentData.secretsLocation
+          entry for AzureStackLCMUserCredential -> new KV secret URI.
+  D3. PATCH via ARM REST (same mechanism as Invoke-ValidationRetry.ps1).
+
+Phase E (re-run wizard validation):
+  E1. Run scripts/Invoke-ValidationRetry.ps1.
+  E2. Watch the External Active Directory step turn Success.
+  E3. Continue watching the pending steps (hardware, network, storage,
+      etc.) - the ones that never ran before due to AD blocker.
+
+Rollback (if something goes wrong)
+----------------------------------
+Everything is scoped to sim.example.internal (nobody else uses this domain in a
+production capacity for our workload). Safe rollback commands:
+
+  # Remove LCM user (if created)
+  Remove-ADUser -Server dc-01.lab.example.com -Credential $simCred \
+    -Identity AZLCL-DEPLOY-ADM -Confirm:$false
+
+  # Remove OU (Recursive removes any child objects)
+  Set-ADOrganizationalUnit -Server dc-01.lab.example.com -Credential $simCred \
+    -Identity 'OU=AzureLocal,OU=Lab Systems,DC=sim,DC=example,DC=internal' \
+    -ProtectedFromAccidentalDeletion:$false
+  Remove-ADOrganizationalUnit -Server dc-01.lab.example.com -Credential $simCred \
+    -Identity 'OU=AzureLocal,OU=Lab Systems,DC=sim,DC=example,DC=internal' \
+    -Recursive -Confirm:$false
+
+  # Remove KV secret (leaves in soft-delete for 90d unless purged)
+  az keyvault secret delete --vault-name kv-lab-secrets --name sim-lcm-azlcl-deploy-adm
+
+  # Restore deploymentSettings from backup
+  az rest --method PUT --uri "https://management.azure.com/subscriptions/..." \
+    --body @out/_deploymentSettings-pre-simcutover-<stamp>.json
+
+Evidence + logs
+---------------
+All script output is captured to out/ with a timestamp for post-hoc review:
+  out/_sim-cutover-<stamp>.log        - full stdout/stderr transcript
+  out/_sim-cutover-<stamp>.json       - final state summary
+  out/_deploymentSettings-pre-simcutover-<stamp>.json - Azure state backup
+  out/_ds-retry-result-<stamp>.json   - post-cutover validation result
+  .creds/sim-azlcl-deploy-adm.cred      - DPAPI-encrypted LCM cred (user+machine bound)
+
+Files touched
+-------------
+NEW:
+  scripts/Invoke-SimDomainCutover.ps1  - executes phases B-E
+  out/_sim-cutover-*                    - evidence
+  .creds/sim-azlcl-deploy-adm.cred        - LCM cred
+  docs/runbooks/sim-domain-cutover-plan.txt (this file)
+
+UPDATED:
+  /memories/repo/azure-local-poc.md    - cutover milestone
+
+UNCHANGED:
+  - Any node-side state (nodes are still workgroup-joined, will get
+    domain-joined during wizard's Deploy phase, not now).
+  - Any Azure resource other than the deploymentSettings child.
+  - The corporate AD side; the OU we had created there stays
+    empty; nobody will refer to it after this cutover.
+
+Notes for resumption if I fail mid-way
+--------------------------------------
+Each phase writes its own checkpoint to out/_sim-cutover-<stamp>.state
+with the last successful step. To resume, re-run the script with
+-ResumeFrom <phase>. If AD writes partially succeeded (OU exists but no
+LCM user, or vice versa), the script is idempotent: it detects existing
+objects and either updates or skips them; no state is destroyed.
+
+Post-cutover wizard state
+-------------------------
+Cluster resource AZL-CLUSTER-01 stays. deploymentSettings/default is
+UPDATED (not recreated). All previously-successful steps (extensions,
+KV, permissions, resource creation) remain. Only new AD identity is used
+on retry. Wizard picks up from the External Active Directory step and
+progresses through the ~20 remaining tests we haven't seen yet
+(hardware, network, storage, cluster, etc.).

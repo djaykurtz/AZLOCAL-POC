@@ -1,0 +1,467 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "bicep",
+      "version": "0.43.8.12551",
+      "templateHash": "5269050177291035187"
+    }
+  },
+  "parameters": {
+    "location": {
+      "type": "string",
+      "defaultValue": "[resourceGroup().location]",
+      "metadata": {
+        "description": "Azure region for all resources. Must match the RG region."
+      }
+    },
+    "tags": {
+      "type": "object",
+      "metadata": {
+        "description": "Tag schema applied to every resource. Keep in sync with the POC plan poc_tags block."
+      }
+    },
+    "logAnalyticsWorkspaceName": {
+      "type": "string",
+      "metadata": {
+        "description": "Log Analytics workspace name."
+      }
+    },
+    "logAnalyticsDailyQuotaGb": {
+      "type": "int",
+      "defaultValue": 5,
+      "minValue": 1,
+      "maxValue": 50,
+      "metadata": {
+        "description": "Daily ingestion cap in GB. Workspace stops ingesting (and notifies) past this number."
+      }
+    },
+    "logAnalyticsRetentionDays": {
+      "type": "int",
+      "defaultValue": 30,
+      "minValue": 30,
+      "maxValue": 730,
+      "metadata": {
+        "description": "Workspace data retention in days."
+      }
+    },
+    "actionGroupName": {
+      "type": "string",
+      "metadata": {
+        "description": "Action group name (operational alerts for the POC)."
+      }
+    },
+    "actionGroupShortName": {
+      "type": "string",
+      "defaultValue": "azlocPOC",
+      "maxLength": 12,
+      "metadata": {
+        "description": "Short name for the action group (max 12 chars, shown in SMS/notifications)."
+      }
+    },
+    "actionGroupEmailReceivers": {
+      "type": "array",
+      "metadata": {
+        "description": "Email addresses that receive action group notifications."
+      }
+    },
+    "budgetName": {
+      "type": "string",
+      "metadata": {
+        "description": "Budget name (RG-scoped)."
+      }
+    },
+    "budgetMonthlyUsd": {
+      "type": "int",
+      "defaultValue": 500,
+      "minValue": 50,
+      "metadata": {
+        "description": "Monthly budget amount in USD."
+      }
+    },
+    "budgetThresholdsPct": {
+      "type": "array",
+      "defaultValue": [
+        50,
+        80,
+        100
+      ],
+      "metadata": {
+        "description": "Budget threshold percentages that trigger an alert."
+      }
+    },
+    "budgetStartDate": {
+      "type": "string",
+      "metadata": {
+        "description": "First day of the budget. Use YYYY-MM-01 format. Budget recurs monthly from this date."
+      }
+    }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "deploy-law",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "name": {
+            "value": "[parameters('logAnalyticsWorkspaceName')]"
+          },
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "tags": {
+            "value": "[parameters('tags')]"
+          },
+          "dailyQuotaGb": {
+            "value": "[parameters('logAnalyticsDailyQuotaGb')]"
+          },
+          "retentionInDays": {
+            "value": "[parameters('logAnalyticsRetentionDays')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.43.8.12551",
+              "templateHash": "4239755905335346197"
+            }
+          },
+          "parameters": {
+            "name": {
+              "type": "string",
+              "metadata": {
+                "description": "Workspace name."
+              }
+            },
+            "location": {
+              "type": "string",
+              "metadata": {
+                "description": "Azure region."
+              }
+            },
+            "tags": {
+              "type": "object",
+              "metadata": {
+                "description": "Tags to apply."
+              }
+            },
+            "dailyQuotaGb": {
+              "type": "int",
+              "minValue": 1,
+              "maxValue": 50,
+              "metadata": {
+                "description": "Daily ingestion cap in GB. Hard stop, not soft."
+              }
+            },
+            "retentionInDays": {
+              "type": "int",
+              "minValue": 30,
+              "maxValue": 730,
+              "metadata": {
+                "description": "Data retention in days."
+              }
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.OperationalInsights/workspaces",
+              "apiVersion": "2023-09-01",
+              "name": "[parameters('name')]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "properties": {
+                "sku": {
+                  "name": "PerGB2018"
+                },
+                "retentionInDays": "[parameters('retentionInDays')]",
+                "workspaceCapping": {
+                  "dailyQuotaGb": "[parameters('dailyQuotaGb')]"
+                },
+                "features": {
+                  "enableLogAccessUsingOnlyResourcePermissions": true
+                },
+                "publicNetworkAccessForIngestion": "Enabled",
+                "publicNetworkAccessForQuery": "Enabled"
+              }
+            }
+          ],
+          "outputs": {
+            "workspaceId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.OperationalInsights/workspaces', parameters('name'))]"
+            },
+            "customerId": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.OperationalInsights/workspaces', parameters('name')), '2023-09-01').customerId]"
+            },
+            "name": {
+              "type": "string",
+              "value": "[parameters('name')]"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "deploy-ag",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "name": {
+            "value": "[parameters('actionGroupName')]"
+          },
+          "shortName": {
+            "value": "[parameters('actionGroupShortName')]"
+          },
+          "tags": {
+            "value": "[parameters('tags')]"
+          },
+          "emailReceivers": {
+            "value": "[parameters('actionGroupEmailReceivers')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.43.8.12551",
+              "templateHash": "16846353271222176446"
+            }
+          },
+          "parameters": {
+            "name": {
+              "type": "string",
+              "metadata": {
+                "description": "Action group name."
+              }
+            },
+            "shortName": {
+              "type": "string",
+              "maxLength": 12,
+              "metadata": {
+                "description": "Short name (max 12 chars) used in notifications."
+              }
+            },
+            "tags": {
+              "type": "object",
+              "metadata": {
+                "description": "Tags to apply."
+              }
+            },
+            "emailReceivers": {
+              "type": "array",
+              "metadata": {
+                "description": "Email addresses that receive notifications."
+              }
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Insights/actionGroups",
+              "apiVersion": "2023-09-01-preview",
+              "name": "[parameters('name')]",
+              "location": "global",
+              "tags": "[parameters('tags')]",
+              "properties": {
+                "copy": [
+                  {
+                    "name": "emailReceivers",
+                    "count": "[length(parameters('emailReceivers'))]",
+                    "input": {
+                      "name": "[format('email-{0}', copyIndex('emailReceivers'))]",
+                      "emailAddress": "[parameters('emailReceivers')[copyIndex('emailReceivers')]]",
+                      "useCommonAlertSchema": true
+                    }
+                  }
+                ],
+                "groupShortName": "[parameters('shortName')]",
+                "enabled": true
+              }
+            }
+          ],
+          "outputs": {
+            "actionGroupId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Insights/actionGroups', parameters('name'))]"
+            },
+            "name": {
+              "type": "string",
+              "value": "[parameters('name')]"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "deploy-budget",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "name": {
+            "value": "[parameters('budgetName')]"
+          },
+          "monthlyAmountUsd": {
+            "value": "[parameters('budgetMonthlyUsd')]"
+          },
+          "thresholdsPct": {
+            "value": "[parameters('budgetThresholdsPct')]"
+          },
+          "startDate": {
+            "value": "[parameters('budgetStartDate')]"
+          },
+          "actionGroupId": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'deploy-ag'), '2025-04-01').outputs.actionGroupId.value]"
+          },
+          "contactEmails": {
+            "value": "[parameters('actionGroupEmailReceivers')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.43.8.12551",
+              "templateHash": "16612754208488990970"
+            }
+          },
+          "parameters": {
+            "name": {
+              "type": "string",
+              "metadata": {
+                "description": "Budget name."
+              }
+            },
+            "monthlyAmountUsd": {
+              "type": "int",
+              "minValue": 50,
+              "metadata": {
+                "description": "Monthly budget amount in USD."
+              }
+            },
+            "thresholdsPct": {
+              "type": "array",
+              "metadata": {
+                "description": "Threshold percentages that fire an alert (e.g. [50, 80, 100])."
+              }
+            },
+            "startDate": {
+              "type": "string",
+              "metadata": {
+                "description": "Start date in YYYY-MM-01 format. Budget recurs monthly from this date."
+              }
+            },
+            "actionGroupId": {
+              "type": "string",
+              "metadata": {
+                "description": "Action group resource ID to notify on threshold breach."
+              }
+            },
+            "contactEmails": {
+              "type": "array",
+              "metadata": {
+                "description": "Email addresses to notify directly (in addition to the action group)."
+              }
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Consumption/budgets",
+              "apiVersion": "2023-05-01",
+              "name": "[parameters('name')]",
+              "properties": {
+                "category": "Cost",
+                "amount": "[parameters('monthlyAmountUsd')]",
+                "timeGrain": "Monthly",
+                "timePeriod": {
+                  "startDate": "[parameters('startDate')]"
+                },
+                "notifications": {
+                  "actual_50": {
+                    "enabled": "[contains(parameters('thresholdsPct'), 50)]",
+                    "operator": "GreaterThan",
+                    "threshold": 50,
+                    "thresholdType": "Actual",
+                    "contactEmails": "[parameters('contactEmails')]",
+                    "contactGroups": [
+                      "[parameters('actionGroupId')]"
+                    ]
+                  },
+                  "actual_80": {
+                    "enabled": "[contains(parameters('thresholdsPct'), 80)]",
+                    "operator": "GreaterThan",
+                    "threshold": 80,
+                    "thresholdType": "Actual",
+                    "contactEmails": "[parameters('contactEmails')]",
+                    "contactGroups": [
+                      "[parameters('actionGroupId')]"
+                    ]
+                  },
+                  "forecasted_100": {
+                    "enabled": "[contains(parameters('thresholdsPct'), 100)]",
+                    "operator": "GreaterThan",
+                    "threshold": 100,
+                    "thresholdType": "Forecasted",
+                    "contactEmails": "[parameters('contactEmails')]",
+                    "contactGroups": [
+                      "[parameters('actionGroupId')]"
+                    ]
+                  }
+                }
+              }
+            }
+          ],
+          "outputs": {
+            "budgetId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Consumption/budgets', parameters('name'))]"
+            },
+            "name": {
+              "type": "string",
+              "value": "[parameters('name')]"
+            }
+          }
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Resources/deployments', 'deploy-ag')]"
+      ]
+    }
+  ],
+  "outputs": {
+    "logAnalyticsWorkspaceId": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'deploy-law'), '2025-04-01').outputs.workspaceId.value]"
+    },
+    "logAnalyticsCustomerId": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'deploy-law'), '2025-04-01').outputs.customerId.value]"
+    },
+    "actionGroupId": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'deploy-ag'), '2025-04-01').outputs.actionGroupId.value]"
+    }
+  }
+}

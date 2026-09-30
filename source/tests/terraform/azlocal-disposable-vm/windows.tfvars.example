@@ -1,0 +1,24 @@
+# Copy this file to a local ignored .tfvars file. Do not commit real IDs or secrets.
+#
+# Windows variant of terraform.tfvars.example. The only differences that matter are os_type, the
+# marketplace image rather than a gallery image, and the memory, since a Server Core guest needs
+# the 4096 MB ceiling the harness allows rather than the 2048 default.
+#
+# Run it in its own workspace so the Linux state is untouched:
+#   terraform workspace new windows
+#   terraform plan "-var-file=windows.tfvars"
+#
+# Supply the password through the environment rather than this file:
+#   $env:TF_VAR_admin_password = <generated locally, never echoed>
+#
+# Placement is not capacity aware. Check free memory on every node first, because a 4 GB guest
+# will fail with 0x8007000E on a node that reports about 5 GB free.
+
+custom_location_id = "/subscriptions/<subscription-id>/resourceGroups/<resource-group>/providers/Microsoft.ExtendedLocation/customLocations/<custom-location-name>"
+image_id           = "/subscriptions/<subscription-id>/resourceGroups/<resource-group>/providers/Microsoft.AzureStackHCI/marketplaceGalleryImages/<windows-image-name>"
+logical_network_id = "/subscriptions/<subscription-id>/resourceGroups/<resource-group>/providers/Microsoft.AzureStackHCI/logicalNetworks/<logical-network-name>"
+admin_username     = "pocadmin"
+vm_name            = "tf-poc-win-01"
+os_type            = "Windows"
+v_cpu_count        = 2
+memory_mb          = 4096

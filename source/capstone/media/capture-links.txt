@@ -1,0 +1,173 @@
+CAPTURE LINKS
+Resolved from real resource IDs. Counts and reported properties re-checked 2026-09-09.
+Run scripts/Invoke-PocPimElevation.ps1 before opening the Azure ones.
+
+Ranked. The first three are the ones the deck is actually missing.
+
+
+================================================================================
+1. CLUSTER > SERVERS  (the shot the whole deck is missing)
+================================================================================
+WHAT:   The four cluster members, as Azure describes them
+SERVES: movements 01 and 02, and the uncertified hardware thesis everywhere else
+WHY:    Azure's own portal calls this hardware ThirdParty. You do not have to
+        assert anything about it being uncertified, because Microsoft's UI says
+        so for you. Verified live 2026-09-09 from reportedProperties:
+
+          clusterType   ThirdParty
+          manufacturer  Dell Inc.
+          hardwareClass Medium
+          nodes         Precision 7960 Rack  x4
+                        24 cores, 32 GiB each
+                        nodeType ThirdParty
+                        oemActivation Disabled
+                        windowsServerSubscription Disabled
+
+FRAME:  Get the model column and the 32 GiB in the same shot. Those two together
+        are the story. oemActivation Disabled is a bonus if it renders, because
+        it says out loud there is no OEM entitlement behind any of this.
+NOTE:   Serial numbers are visible on this blade. Fine internally, crop if the
+        deck ever leaves the building.
+
+https://portal.azure.com/#resource/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-azlocal-poc-001/providers/microsoft.azurestackhci/clusters/AZL-CLUSTER-01/overview
+        Then open the Servers blade from the left nav.
+
+
+================================================================================
+2. CLUSTER > OVERVIEW, THE BILLING PANEL
+================================================================================
+WHAT:   Billing model
+SERVES: the Trials framing in the intro
+WHY:    The cluster is literally running on a trial licence. Live 2026-09-09:
+
+          billingModel          Trial
+          trialDaysRemaining    17
+
+FRAME:  Just the billing model line. It is a small panel and it is the whole
+        wordplay. Grab it soon, the number goes down.
+
+https://portal.azure.com/#resource/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-azlocal-poc-001/providers/microsoft.azurestackhci/clusters/AZL-CLUSTER-01/overview
+
+
+================================================================================
+3. CLUSTER > DEPLOYMENTS
+================================================================================
+WHAT:   The deployment run, in Microsoft's UI rather than in our transcript
+SERVES: movement 02
+WHY:    Highest value of the lot IF the blade still holds the 2026-07-27 run.
+        Everything the deck says about 54 steps and 2h 13m currently comes from
+        our own capture. This would be the product saying it.
+FRAME:  The step list, or the summary with the duration. Check it exists before
+        planning a slide around it.
+
+https://portal.azure.com/#resource/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-azlocal-poc-001/providers/microsoft.azurestackhci/clusters/AZL-CLUSTER-01/overview
+        Then Deployments in the left nav.
+
+
+================================================================================
+4. CLUSTER > VOLUMES
+================================================================================
+WHAT:   The Storage Spaces Direct volumes as Azure objects
+SERVES: movement 02, the storage pathway
+WHY:    Four storage containers exist and the deck claims them. This is S2D
+        surfaced through Azure rather than through Get-VirtualDisk.
+        Confirmed present 2026-09-09: UserStorage1 through UserStorage4.
+FRAME:  Volume names plus resiliency and capacity if the columns are there.
+
+https://portal.azure.com/#resource/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-azlocal-poc-001/providers/microsoft.azurestackhci/clusters/AZL-CLUSTER-01/overview
+        Then Volumes in the left nav.
+
+
+================================================================================
+5. CLUSTER > UPDATES
+================================================================================
+WHAT:   Solution version and update readiness
+SERVES: the argument that lifecycle becomes Azure's problem
+WHY:    Version 10.0.26100.32690 across all four nodes, cloud managed. The
+        cluster reports CloudManagedUpdates and CloudManagedUpdatesV2 as
+        supported capabilities.
+FRAME:  The current version and whatever readiness state it shows.
+
+https://portal.azure.com/#resource/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-azlocal-poc-001/providers/microsoft.azurestackhci/clusters/AZL-CLUSTER-01/overview
+        Then Updates in the left nav.
+
+
+================================================================================
+6. RESOURCE GROUP, 53 RESOURCES
+================================================================================
+WHAT:   Everything Azure can see, in one list
+SERVES: movement 09, the honest split
+WHY:    Counted live 2026-09-09. It is 53, not 55. The earlier number in this
+        file was wrong and the deck has been corrected to match. Breakdown:
+          20 Arc machine extensions      8 Arc machines (6 hosts, 2 guests)
+           4 gallery images              4 storage containers
+           2 logical networks            2 marketplace images
+           2 Azure Local NICs            1 each of cluster, bridge, custom
+                                           location, AKS, vault, workspace,
+                                           workbook, action group, storage
+                                           account, attestation provider, VHD
+FRAME:  The count badge and enough of the list to show the variety.
+
+https://portal.azure.com/#resource/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-azlocal-poc-001/overview
+
+
+================================================================================
+7. AKS ARC azl-cluster-01-aks-01
+================================================================================
+WHAT:   Kubernetes, on the cluster, as an Azure resource
+SERVES: movement 03
+WHY:    Version 1.33.5. Two node roles: moc-control-plane-01 is the control plane and
+        moc-worker-01 is the worker. Checked live 2026-09-09; the labels represent those roles.
+
+https://portal.azure.com/#resource/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-azlocal-poc-001/providers/Microsoft.Kubernetes/connectedClusters/azl-cluster-01-aks-01/overview
+
+
+================================================================================
+8. ARC RESOURCE BRIDGE
+================================================================================
+WHAT:   The control plane appliance
+SERVES: movement 02
+WHY:    ECE step 40 of 54, the heaviest step in the deployment at about 64
+        minutes. This is what it built.
+
+https://portal.azure.com/#resource/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-azlocal-poc-001/providers/Microsoft.ResourceConnector/appliances/AZL-CLUSTER-01-arcbridge/overview
+
+
+================================================================================
+9. CUSTOM LOCATION
+================================================================================
+WHAT:   How Azure addresses the cluster
+SERVES: the explainer, not a movement
+WHY:    Every VM, image and network created on this cluster names this object.
+
+https://portal.azure.com/#resource/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-azlocal-poc-001/providers/Microsoft.ExtendedLocation/customLocations/azl-cluster-01-cl/overview
+
+
+================================================================================
+10. FUNDER WORKBOOK
+================================================================================
+WHAT:   A real dashboard, shown nowhere in the deck
+SERVES: nothing yet, which is the point
+
+https://portal.azure.com/#resource/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-azlocal-poc-001/providers/Microsoft.Insights/workbooks/00000000-0000-0000-0000-000000000006
+
+
+================================================================================
+11. DOCKGE ON rocky-docker-01
+================================================================================
+WHAT:   Ordinary container tooling, running on the cluster
+SERVES: movement 06
+NOTE:   The guest is currently stopped. Start it before expecting a page.
+
+http://10.10.1.208:5001
+
+
+================================================================================
+12. ARC ENABLED SERVERS
+================================================================================
+WHAT:   Six physical machines registered, four of them in the cluster
+SERVES: movement 01
+NOTE:   No direct link. Open the resource group and filter type to
+        Microsoft.HybridCompute/machines. Eight are listed: the six physical
+        nodes including 03 and 05 which never joined, plus rocky-docker-01 and
+        ws2025-core-01 which are guests. All eight report Connected.

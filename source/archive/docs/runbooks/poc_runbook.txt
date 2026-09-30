@@ -1,0 +1,418 @@
+# Azure Local POC - End-to-End Runbook
+
+Clean execution sequence for a 6-node Azure Local POC in subscription
+contoso-lab-sub, RG rg-azlocal-poc-001, hardware in lab
+rack rack-01. The RG metadata location is westus3; Azure Local / Arc
+control-plane resources use southcentralus per ADR 0001 and the validated
+2026-06-04 Arc onboarding run.
+
+This document is the "happy path" - what you do if everything works.
+The discovery, dead-ends, and decision rationale live in the POC plan
+and poc_prereq_checklist.txt. The external-role asks are summarized in
+docs/prerequisites.md.
+
+ASCII only. PowerShell-friendly (no backslash line continuations).
+
+Status legend:
+  [v]   Verified working in this POC (commands run, output captured)
+  [p]   Planned, command shape known but not yet executed end-to-end
+  [x]   Hands-off step (external team or smart hands does it)
+
+
+==============================================================================
+PHASE 1 - SUBSCRIPTION BOOTSTRAP                                          [v]
+==============================================================================
+
+# All Contributor-level. PIM-activate Contributor on
+# contoso-lab-sub before starting.
+
+# 1.1 - Confirm context.
+az account show --query "{name:name, id:id, user:user.name}" -o table
+
+# 1.2 - Create the POC resource group with the organizational tag schema.
+# The cost-center tag sits as a PENDING placeholder until the directory
+# admins confirm it. Update it once known.
+az group create --name rg-azlocal-poc-001 --location westus3 --tags BusinessUnit=Lab Owner=platform Workload=AzureLocal Environment=dev Purpose=POC CreatedBy=labadmin CreatedDate=2026-05-22 CostCenter=PENDING
+
+# 1.3 - Register the 7 required Azure resource providers in parallel.
+$providers = 'Microsoft.AzureStackHCI','Microsoft.Kubernetes','Microsoft.KubernetesConfiguration','Microsoft.ExtendedLocation','Microsoft.ResourceConnector','Microsoft.HybridContainerService','Microsoft.Attestation'
+$providers | ForEach-Object -Parallel { az provider register --namespace $_ --consent-to-permissions 2>&1 | Out-Null } -ThrottleLimit 7
+
+# 1.4 - Poll until all 7 show Registered (typically <5 min).
+$providers | ForEach-Object { [pscustomobject]@{ Provider = $_; State = (az provider show --namespace $_ --query registrationState -o tsv) } } | Format-Table -AutoSize
+
+
+==============================================================================
+PHASE 2 - FILE EXTERNAL REQUESTS                                          [x]
+==============================================================================
+
+# Send the directory and network asks listed in docs/prerequisites.md.
+# Both can be raised the same day Phase 1 completes. Their turnaround
+# dominates POC elapsed time.
+
+# What we are asking for in summary:
+#   The directory admins:    3 PIM-eligible RBAC roles + tag value confirmation
+#   Networking: one /27 subnet + outbound firewall allowlist confirmation
+
+
+==============================================================================
+PHASE 3 - DEPLOY OBSERVABILITY AND COST GUARDRAILS                        [v]
+==============================================================================
+
+# This is Contributor-level work. Does not need directory admins RBAC.
+# Creates: Log Analytics workspace, action group, monthly budget.
+# Source of truth: infra/main.bicep and infra/main.bicepparam.
+
+# 3.1 - Install the Bicep CLI bundled with Azure CLI (one-time).
+az bicep install
+az bicep version
+
+# 3.2 - Compile to catch syntax errors before hitting Azure.
+az bicep build --file infra/main.bicep
+
+# 3.3 - Preview what would change. Always run what-if before create.
+az deployment group what-if --resource-group rg-azlocal-poc-001 --template-file infra/main.bicep --parameters infra/main.bicepparam
+
+# 3.4 - Deploy for real. Timestamped name so you can find this deployment later.
+az deployment group create --resource-group rg-azlocal-poc-001 --name "azloc-poc-observability-$(Get-Date -Format yyyyMMdd-HHmmss)" --template-file infra/main.bicep --parameters infra/main.bicepparam
+
+# 3.5 - Confirm.
+az resource list --resource-group rg-azlocal-poc-001 --query "[].{name:name, type:type}" -o table
+az consumption budget list --resource-group rg-azlocal-poc-001 --query "[].{name:name, amount:amount, timeGrain:timeGrain}" -o table
+
+
+==============================================================================
+PHASE 4 - SELF-ASSIGN RG-SCOPE RBAC ROLES                                 [p]
+==============================================================================
+
+# Pre-requisite: directory admins has granted User Access Administrator on
+# rg-azlocal-poc-001 (one of the 3 roles asked for in Phase 2).
+# After that, the platform owner can self-assign the remaining 5 deployment roles
+# without further round-trips.
+
+# 4.1 - Get the signed-in user's objectId for the role assignment commands.
+$myObjectId = az ad signed-in-user show --query id -o tsv
+$rgScope = "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-azlocal-poc-001"
+
+# 4.2 - Assign the 5 RG-scope roles. Each is a one-liner.
+'Key Vault Data Access Administrator','Key Vault Secrets Officer','Key Vault Contributor','Storage Account Contributor','Azure Connected Machine Onboarding','Azure Connected Machine Resource Administrator' | ForEach-Object { az role assignment create --assignee-object-id $myObjectId --assignee-principal-type User --role "$_" --scope $rgScope }
+
+# 4.3 - Verify all 5 landed.
+az role assignment list --assignee $myObjectId --scope $rgScope --query "[].{role:roleDefinitionName}" -o table
+
+
+==============================================================================
+PHASE 5 - AD OBJECT PRE-CREATION                                          [p]
+==============================================================================
+
+# Pre-requisite: working access from a corporate-domain-joined Windows host with
+# RSAT installed. svc-deploy creds available (kv-lab-secrets KV secret
+# SVC-DEPLOY).
+
+# 5.1 - Verify the cross-domain trust.
+nltest /sc_query:corp.example.com
+nltest /trusted_domains
+
+# 5.2 - Install Microsoft's pre-creation module.
+Install-Module AsHciADArtifactsPreCreationTool -Repository PSGallery -Force
+
+# 5.3 - Pre-create cluster object + 6 disabled node computer objects.
+# Hostnames come from KVM port labels (AZL-NODE-01..06).
+New-HciAdObjectsPreCreation -AsHciOUName "OU=Lab-Datacenter,OU=NoSync,OU=Lab,DC=corp,DC=example,DC=com" -AsHciPhysicalNodeList @('AZL-NODE-01','AZL-NODE-02','AZL-NODE-03','AZL-NODE-04','AZL-NODE-05','AZL-NODE-06') -AsHciClusterName "AZL-CL01" -AsHciDeploymentUserName "svc-deploy" -DomainFQDN "corp.example.com"
+
+# 5.4 - Verify objects exist and are disabled.
+Get-ADComputer -Filter "Name -like 'AZL-NODE-*'" -SearchBase "OU=Lab-Datacenter,OU=NoSync,OU=Lab,DC=corp,DC=example,DC=com" -Server corp.example.com | Format-Table Name, Enabled
+
+# 5.5 - DO NOT pre-join any node to the domain.
+# The Azure Local deployment wizard handles the join during cloud setup
+# and rejects pre-joined nodes at validation time.
+
+
+==============================================================================
+PHASE 6 - PHYSICAL + IMAGING (LOCAL ADMIN AT LAB SITE)                     [x]
+==============================================================================
+
+# Local admin at the lab site follows the standard site imaging SOP. The platform team provides:
+#   - Node hostnames: AZL-NODE-01..06, cluster object AZL-CL01
+#   - Rack: rack-01
+#   - OS: Azure Stack HCI OS, current release
+#   - Mini checklist: reimage_checklist.txt
+#   - BIOS spec: see bios_ideal_state.txt (canonical per-node settings,
+#     incl. NVMe Mode, VROC, Slot 6 Bifurcation for the ASUS Hyper M.2
+#     X16 Gen 4 carrier, VT-x, VT-d, XD bit, Secure Boot, TPM, boot order)
+#   - Storage build-out: see decisions/0003-storage-spec-lock.md
+#     (1x ASUS Hyper M.2 X16 Gen 4 + 2x KIOXIA KXG80ZNV512G per active node)
+#   - Static management IP per node from Networking allocation
+#   - Local Administrator password identical across 6 nodes
+#   - DO NOT domain-join (wizard handles it during cloud setup)
+
+# Storage-mode setback / recovery (ADR 0007): if a node was installed with
+# the storage path set to RAID/VROC, set final Non-RAID/plain NVMe BIOS state
+# and reimage rather than preserving the current OS. Local admin should not
+# attempt bcdedit or Safe Mode storage conversion. Keep the same hostnames and
+# static IPs. Do not domain-join manually. Expect Arc records to need cleanup
+# or re-onboarding.
+
+# The platform team verifies remotely after local admin signs off:
+#   - All 6 nodes ICMP reachable on assigned IPs
+#   - WinRM (5985/5986) reachable from the Ansible control node
+#   - Get-ComputerInfo OS version matches across the 6
+
+
+==============================================================================
+PHASE 7 - ARC ONBOARDING                                                  [p]
+==============================================================================
+
+# Pre-requisite: Phases 4-6 done. Subscription has the 7 providers
+# registered, RBAC in place, nodes reachable.
+
+# Path A - Azure portal generates a per-node onboarding script (recommended
+# for first time, shows you exactly what the script does):
+#   Portal > Azure Arc > Servers > Add > Multiple servers > Generate script
+# Run the generated script on each node as Administrator.
+
+# Path B - one-liner per node (after first time, when you know it works):
+# On each node, in elevated PowerShell:
+#   $params = @{ resource_group = 'rg-azlocal-poc-001'; tenant_id = '<tenant>'; location = 'westus3'; subscription_id = '00000000-0000-0000-0000-000000000001'; cloud = 'AzureCloud' }
+#   azcmagent connect @params
+
+# 7.1 - Verify all 6 nodes appear as Arc machines.
+az connectedmachine list --resource-group rg-azlocal-poc-001 --query "[].{name:name, status:status, osName:osName}" -o table
+
+
+==============================================================================
+PHASE 8 - CLUSTER DEPLOYMENT VIA PORTAL WIZARD                            [p]
+==============================================================================
+
+# Portal: Azure Local > Create.
+# This wizard does the bulk of the work and is the recommended path for
+# first deployment. CLI-only deployment exists (az stack-hci-vm) but the
+# wizard generates the equivalent ARM template at the end and you can
+# capture it for future runs.
+
+# Wizard inputs:
+#   Subscription:       contoso-lab-sub
+#   Resource group:     rg-azlocal-poc-001
+#   Cluster name:       AZL-CL01
+#   Region:             southcentralus
+#   Servers:            the 6 Arc machines from Phase 7
+#   Network intent:     single converged (mgmt + storage + compute)
+#   Storage type:       Storage Spaces Direct, default config
+#   AD:                 corp.example.com
+#                       OU=Lab-Datacenter,OU=NoSync,OU=Lab,DC=corp,...
+#                       Deployment account: CORP\svc-deploy
+#                       (password from kv-lab-secrets KV)
+#   Key Vault:          azloc-kv-001
+#                       (wizard creates this if not present; ours is created
+#                       in advance with RBAC + purge protection)
+#   Witness storage:    azlocsa001
+#                       (wizard creates this)
+#   Diagnostics:        send to azloc-law-001
+#                       categories: Audit, Alerts, SystemSecurity
+#                       (NEVER pick AllLogs - blows past the daily cap)
+
+# 8.1 - Validation phase (wizard runs automatically). Expect 30-60 min.
+# If validation fails, address the specific failure (NIC mismatch, AD
+# permissions, pre-joined node) and re-run validation - the wizard
+# preserves all inputs.
+
+# 8.2 - Deployment phase (wizard runs automatically). Expect 2-3 hours
+# wall-clock for a 6-node cluster.
+
+# 8.3 - Export the wizard's ARM template at the end.
+# This becomes the basis for future automated deployments.
+
+
+==============================================================================
+PHASE 9 - VALIDATION                                                      [p]
+==============================================================================
+
+# Sprint 1 - connectivity
+ansible-playbook playbooks/roles/azureLocal/tests/sprint1_connectivity.yml -i inventory/AZLOC-POC/inv-azloc-poc.yml --vault-password-file=vault/.vault_key.txt
+
+# Sprint 2 - cluster health
+ansible-playbook playbooks/roles/azureLocal/tests/sprint2_cluster.yml -i inventory/AZLOC-POC/inv-azloc-poc.yml --tags validate
+
+# Sprint 3 - VM deployment proofs
+#   - Portal:  deploy a Windows VM via the Azure portal targeting the cluster
+#   - CLI:     az stack-hci-vm create ...
+#   - Ansible: ansible-playbook playbooks/roles/azureLocal/deploy_vm.yml
+
+
+==============================================================================
+PHASE 10 - AKS POC SMOKE WORKLOAD                                           [p]
+==============================================================================
+
+# POC posture: use the recommended AKS-on-Azure-Local networking/deployment
+# path from the Azure Local / AKS experience. Do not design custom flat L3,
+# production HA, or DR for this proof. Success is a simple workload that
+# schedules, exposes, scales, self-heals one deleted pod, and leaves evidence.
+
+# 10.1 - Confirm AKS cluster is reachable from the current kubeconfig.
+kubectl config current-context
+kubectl get nodes -o wide
+
+# 10.2 - Run the minimum smoke test.
+# Default service type is LoadBalancer to prove service exposure when the
+# AKS VIP/service path is available. Use -ServiceType ClusterIP if we only
+# want an internal scheduling proof during first bring-up.
+.\scripts\Invoke-AksSmokeValidation.ps1
+
+# 10.3 - Capture the report path printed by the script in the POC notes.
+# Reports land under out\_aks-smoke-*.txt.
+
+# 10.4 - Cleanup when done, if desired.
+.\scripts\Invoke-AksSmokeValidation.ps1 -Cleanup
+
+
+==============================================================================
+PHASE 10a - LOCAL TOOLING VALIDATION                                       [v]
+==============================================================================
+
+# Hardware-free checks for the POC surface: PowerShell syntax, Bicep build,
+# Terraform fmt/validate when .tf files exist, Dockerfile static checks when
+# Dockerfiles exist, and Kubernetes manifest dry-run checks when manifests
+# exist. This is safe to run while waiting on hardware and does not deploy
+# anything to Azure or the lab nodes.
+# Detailed blocker-first design: poc_test_design.txt.
+
+.\scripts\Invoke-LocalValidation.ps1
+
+# Optional: build Dockerfiles locally if Docker is installed and we want a
+# stronger container check. This still does not push images anywhere.
+.\scripts\Invoke-LocalValidation.ps1 -BuildDocker
+
+# Dedicated no-deploy checks for each added tooling surface:
+.\scripts\Invoke-TerraformPlanOnly.ps1          # requires terraform
+.\scripts\Invoke-DockerSmokeBuild.ps1           # requires docker
+.\scripts\Test-KubernetesManifests.ps1          # requires kubectl
+
+
+==============================================================================
+PHASE 10b - TERRAFORM PRELIMINARY TEST PLAN                                [p]
+==============================================================================
+
+# Plan-only. Terraform is currently a POC tooling target, not the primary
+# deployment path. Keep tests no-apply unless explicitly promoted later.
+# Detailed plan:
+#   poc_terraform_test_plan.txt
+
+
+==============================================================================
+PHASE 10c - DOCKER OPERATIONS TEST PLAN                                    [p]
+==============================================================================
+
+# Plan-only. Do not execute until Azure Local can host a disposable VM and/or
+# AKS is ready. Normal Docker operations should be tested in a disposable VM,
+# not by installing Docker on Azure Local host nodes. Detailed plan:
+#   poc_docker_operations_test_plan.txt
+
+
+==============================================================================
+PHASE 10d - KUBERNETES / AKS PRELIMINARY TEST PLAN                         [p]
+==============================================================================
+
+# Plan-only. Do not execute until Azure Local cluster, ARB/custom location,
+# and AKS prerequisites are ready. Detailed blocker-first Kubernetes plan:
+#   poc_kubernetes_test_plan.txt
+
+
+==============================================================================
+PHASE 11 - TEARDOWN AT END OF POC                                         [p]
+==============================================================================
+
+# 11.1 - Remove the cluster from Azure (this also cleans up Arc machines,
+# the Arc Resource Bridge, the cluster object, KV, witness storage).
+az stack-hci cluster delete --name AZL-CL01 --resource-group rg-azlocal-poc-001
+
+# 11.2 - Delete the resource group (catches anything left behind).
+# Confirm prompt - this is destructive.
+az group delete --name rg-azlocal-poc-001 --yes
+
+# 11.3 - Clean up AD objects in the corporate OU (cluster + 6 nodes).
+Get-ADComputer -Filter "Name -like 'AZL-NODE-*'" -SearchBase "OU=Lab-Datacenter,OU=NoSync,OU=Lab,DC=corp,DC=example,DC=com" -Server corp.example.com | Remove-ADComputer -Confirm:$true
+
+# 11.4 - The 7 resource providers stay registered on the subscription
+# (they apply to other workloads, no reason to unregister).
+
+# 11.5 - The 3 directory admins-granted RBAC roles can be removed by directory admins
+# (or simply expire if they were granted as time-bound PIM assignments).
+
+
+==============================================================================
+APPENDIX - QUICK SANITY-CHECK COMMANDS
+==============================================================================
+
+# What's in my RG right now?
+az resource list --resource-group rg-azlocal-poc-001 --query "[].{name:name, type:type, location:location}" -o table
+
+# What roles do I have at sub scope vs RG scope?
+$myObjectId = az ad signed-in-user show --query id -o tsv
+az role assignment list --assignee $myObjectId --query "[].{role:roleDefinitionName, scope:scope}" -o table
+
+# What providers are registered (just the ones we need)?
+'Microsoft.AzureStackHCI','Microsoft.Kubernetes','Microsoft.KubernetesConfiguration','Microsoft.ExtendedLocation','Microsoft.ResourceConnector','Microsoft.HybridContainerService','Microsoft.Attestation' | ForEach-Object { [pscustomobject]@{ Provider = $_; State = (az provider show --namespace $_ --query registrationState -o tsv) } } | Format-Table -AutoSize
+
+# Deployment history for the RG.
+az deployment group list --resource-group rg-azlocal-poc-001 --query "[].{name:name, state:properties.provisioningState, started:properties.timestamp}" -o table
+
+# Bicep what-if without redeploying (handy for verifying parameter changes).
+az deployment group what-if --resource-group rg-azlocal-poc-001 --template-file infra/main.bicep --parameters infra/main.bicepparam
+
+
+==============================================================================
+APPENDIX - NODE REACHABILITY (AzVPN REQUIRED)
+==============================================================================
+
+# IMPORTANT - GSA routing gotcha (learned 2026-05-22):
+# The 10.10.x.x address space is REUSED across multiple isolated L3 planes.
+# GSA resolves lab.example.com DNS correctly, but direct-IPv4 traffic from GSA
+# DOES NOT reach the lab nodes - it lands on unrelated corp hosts at the
+# same address. TCP probes from GSA will appear to "succeed" on ports
+# 22/443/3389/5985/5986 because some other machine answers, not the node.
+#
+# Always disconnect GSA and connect AzVPN before probing nodes by IP.
+# Use FQDN + protocol handshake (Test-WSMan, SSH banner, browser HTTPS)
+# rather than raw TCP connect for honest signal.
+
+# Sanity: confirm DNS resolves all node + KVM names.
+'azl-node-01.lab.example.com','azl-node-02.lab.example.com','azl-node-03.lab.example.com','azl-node-04.lab.example.com','azl-node-05.lab.example.com','azl-node-06.lab.example.com','kvm-01.lab.example.com' | ForEach-Object { $r = Resolve-DnsName $_ -ErrorAction SilentlyContinue; if ($r) { $ips = ($r | Where-Object IPAddress | Select-Object -ExpandProperty IPAddress) -join ','; "[OK]   $_ -> $ips" } else { "[FAIL] $_" } }
+
+# Reachability check that survives the GSA proxy artifact.
+# A fake port that reports "OPEN" is a proof that something between us
+# and the destination is fabricating SYN-ACKs. Real listeners only
+# respond on real ports.
+$probeIPs = @('10.10.1.187','10.10.1.188','10.10.1.189','10.10.1.190','10.10.1.191','10.10.1.192')
+$realPorts = @(22, 443, 3389, 5985, 5986)
+$fakePort = 12345
+$ProgressPreference = 'SilentlyContinue'
+foreach ($ip in $probeIPs) {
+  $line = "$ip :"
+  foreach ($p in @($fakePort) + $realPorts) {
+    $tc = New-Object System.Net.Sockets.TcpClient
+    $task = $tc.ConnectAsync($ip, $p)
+    $ok = $task.Wait(3000) -and $tc.Connected
+    $line += "  $p=$(if($ok){'OPEN'}else{'-'})"
+    $tc.Close()
+  }
+  $line
+}
+# If 12345 reports OPEN: you are still hitting a proxy. Verify VPN state.
+# If 12345 is - and the real ports are OPEN: those are likely real.
+
+# Honest WinRM check (uses FQDN, real protocol handshake, ignores TCP).
+foreach ($n in 1..6) {
+  $fqdn = "azl-node-{0:00}.lab.example.com" -f $n
+  $r = Test-WSMan -ComputerName $fqdn -ErrorAction SilentlyContinue
+  if ($r) { "$fqdn WSMan = $($r.ProductVersion)" } else { "$fqdn WSMan = no response" }
+}
+
+# KVM web UI (separate subnet, also AzVPN-dependent).
+# Browse: https://kvm-01.lab.example.com/
+
+# iDRAC plane (NOT used by this POC, but documented for completeness).
+# IPv6 only. Range: 2001:db8:90:f087:1d::c12:1 through ::c12:6.
+# FQDNs: azl-node-{01..06}adm.lab.example.com (note the 'adm' suffix).
+# Browser access (HTTPS) requires AzVPN AND a specific access path that
+# may differ from the OS-plane AzVPN. If iDRAC URLs do not load, do
+# not chase it - smart-hands + KVM handles imaging.

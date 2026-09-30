@@ -1,0 +1,137 @@
+========================================================================
+  AZURE LOCAL POC // DOCUMENTATION-GAP EVIDENCE
+  Purpose: substantiate a schedule-extension request by documenting where
+  Microsoft's own Azure Local requirements are vague, undocumented, or only
+  discoverable at runtime on already-imaged hardware.
+  Compiled 2026-07-10. Sources fetched live from Microsoft Learn (azloc-2606).
+========================================================================
+
+  SUMMARY FOR APPROVERS
+  ---------------------
+  Several networking requirements that block Azure Local cluster validation
+  are NOT stated in the published requirements documentation. They are
+  enforced only by the runtime validator (AzStackHci.EnvironmentChecker),
+  which can only be run AFTER the OS is imaged on the physical hardware.
+  This makes certain blockers impossible to plan around in advance and is a
+  legitimate, externally-caused source of schedule slip.
+
+  RESOLUTION STATUS (2026-07-10): the NIC gate is now PASSING on nodes 01/02
+  after discovering the ConnectX-5 ports were merely disabled (see ADR 0010).
+  That does NOT retract the gaps below - the time was already spent discovering
+  runtime-only criteria (esp. Gap 1 NdisPhysicalMedium=14 and Gap 5 driver
+  under-reporting) that no documentation exposes. The gaps stand as the cause
+  of the slip; the fix was found by runtime trial, which is exactly the point.
+
+------------------------------------------------------------------------
+  GAP 1 - The hard NIC gate is undocumented (runtime-only)
+------------------------------------------------------------------------
+  DOC SAYS (system-requirements-23h2, "Machine and storage requirements"):
+    "Host network adapters: At least two network adapters listed in the
+     Windows Server Catalog. Or dedicated network adapters per intent,
+     which does require two separate adapters for storage intent."
+    URL: https://learn.microsoft.com/en-us/azure/azure-local/concepts/system-requirements-23h2
+
+  VALIDATOR ACTUALLY ENFORCES (from the CRITICAL failure text on our node):
+    NIC must satisfy: NdisMedium -eq 0 -and Status -eq 'Up'
+      -and NdisPhysicalMedium -eq 14 -and PnPDeviceID -notlike 'USB\*'
+
+  THE GAP: The string "NdisPhysicalMedium" (and the required value 14)
+  appears in NO Microsoft Learn documentation page. It is only observable
+  by running Invoke-AzStackHciHardwareValidation on already-imaged hardware.
+  => The precise pass/fail criterion cannot be verified during planning or
+     procurement; it is discover-at-runtime by design.
+
+------------------------------------------------------------------------
+  GAP 2 - "Two adapters" vs "converged single intent" is ambiguous
+------------------------------------------------------------------------
+  DOC SAYS (same page): "At least two network adapters... OR dedicated
+    network adapters per intent, which does require two separate adapters
+    for storage intent."
+  THE GAP: The doc does not state the minimum for a CONVERGED (single-intent)
+  deployment, nor which branch a functional POC must follow. Two engineers
+  can reasonably read this differently. There is no worked example for the
+  single-converged-intent case that this POC uses.
+
+------------------------------------------------------------------------
+  GAP 3 - No numeric link-speed floor for storage traffic
+------------------------------------------------------------------------
+  DOC SAYS (host-network-requirements, "Traffic bandwidth allocation"):
+    "...considering the permutations for the number of adapters and speeds,
+     this should be considered an example and not a support requirement."
+    URL: https://learn.microsoft.com/en-us/azure/azure-local/concepts/host-network-requirements
+  THE GAP: Bandwidth examples (10/25/100 GbE) are explicitly NOT support
+  requirements, and NO minimum Gbps is stated for a functional/converged
+  deployment. Whether 1GbE is permissible is therefore undocumented and
+  cannot be confirmed without vendor/runtime testing.
+
+------------------------------------------------------------------------
+  GAP 4 - Switch-vs-switchless node threshold is in the wrong page
+------------------------------------------------------------------------
+  DOC SAYS (manage/add-server, "Supported scenarios"): two->three node and
+    beyond are "Switch only"; single->two may be switchless.
+    URL: https://learn.microsoft.com/en-us/azure/azure-local/manage/add-server
+  ALSO (physical-network-requirements): "North-South traffic requires the
+    use of switches."
+    URL: https://learn.microsoft.com/en-us/azure/azure-local/concepts/physical-network-requirements
+  THE GAP: The critical constraint "3+ nodes requires a switch" is documented
+  on a DAY-2 OPERATIONS (add-server) page, not on the initial deployment or
+  system-requirements pages a planner reads first. Easy to miss at planning time.
+
+------------------------------------------------------------------------
+  GAP 5 - Driver-reporting failure mode is entirely undocumented
+------------------------------------------------------------------------
+  OBSERVED ON HARDWARE (node 01, 2026-07-10): the onboard Broadcom NetXtreme
+    1GbE NIC, though a genuine Ethernet adapter and Status=Up, reports
+    NdisPhysicalMedium = 0 (Unspecified) rather than 14 (802.3), and therefore
+    FAILS the validator's NIC gate.
+  THE GAP: No documentation page explains that an adapter on a generic/inbox
+  driver may under-report NdisPhysicalMedium and fail validation despite being
+  valid Ethernet. The remediation (install OEM driver / use a NIC that reports
+  correctly) is not documented as a requirement or a known issue.
+
+------------------------------------------------------------------------
+  GAP 6 - Storage-NIC floor is real but unpublished (RDMA-implied, not stated)
+------------------------------------------------------------------------
+  DOC SAYS (host-network-requirements, "RDMA"): the Storage (Standard/Premium)
+    catalog qualification requires host-side RDMA:
+    "Certifications required: Storage (Standard). All adapters with Storage
+     (Standard) or Storage (Premium) qualification support host-side RDMA."
+  BLOG CONFIRMS (Windows Server Catalog NIC certification blog, DanCuomo,
+    techcommunity, Aug 2022):
+    - OLD structure was link-speed based: "any adapter of 10 Gbps or higher
+      had additional (Microsoft test) requirements imposed on it."
+    - NEW structure is role-based and DECOUPLED from speed, motivated by
+      scenarios including: "Single-Node clusters which do not require
+      high-performance storage replication capabilities" and "Switchless
+      storage adapters."
+    URL: https://techcommunity.microsoft.com/t5/networking-blog/nic-certification-updates-in-the-windows-server-catalog/ba-p/3606506
+  THE GAP (calibrated, defensible):
+    - The Storage role requires RDMA; RDMA-capable NICs are in practice 10GbE+.
+      There is effectively NO 1GbE NIC carrying a Storage qualification.
+    - YET no requirements page states a numeric minimum (e.g. "10 GbE") for a
+      storage-bearing adapter. The floor is an EMERGENT consequence of the RDMA
+      requirement, not a documented spec.
+    - Microsoft's own blog acknowledges single-node / switchless scenarios have
+      DIFFERENT (lower) NIC needs, but the requirements docs never translate
+      that into a clear NIC floor for a functional/single-node POC - the exact
+      scenario in scope here.
+    NOTE: Do NOT claim "the catalog only lists 10GbE+" as a current hard rule -
+    the cert structure is now role-based, not link-speed based. The accurate
+    claim is the unpublished-floor framing above.
+
+------------------------------------------------------------------------
+  WHY THIS JUSTIFIES ADDITIONAL TIME
+------------------------------------------------------------------------
+  - The blocking criteria are only knowable after OS imaging on physical
+    hardware; they cannot be fully pre-validated during planning/procurement.
+  - The documentation is silent or example-only on the exact points that
+    determine pass/fail (NIC medium code, converged minimum, link-speed floor,
+    driver reporting).
+  - Resolving them requires an empirical loop (image -> validate -> adjust
+    driver/NIC/cabling -> re-validate) that is inherent to the product, not
+    a result of planning error.
+
+  Storage validation, by contrast, is fully passing on the pilot node -
+  demonstrating the team's execution is sound; the remaining gap is the
+  documentation-vs-runtime networking mismatch described above.
+========================================================================

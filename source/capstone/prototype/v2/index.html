@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Azure Local POC</title>
+<link rel="stylesheet" href="styles.css" />
+<link rel="stylesheet" href="intro.css" />
+</head>
+<body>
+
+<div class="fit">
+<div class="stage" id="stage">
+
+<!-- Ambient activity. Colour follows the kinds that are online, so the air itself reports the arc. -->
+<div class="motes" id="motes" aria-hidden="true"></div>
+
+<!-- C1: the console is the frame. Everything lives inside it. -->
+<div class="console">
+
+  <header class="hdr">
+    <div class="hdr-left">
+      <span class="hdr-dot" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>
+      <strong class="hdr-title">Azure Local POC Visual Console</strong>
+      <span class="chip" data-note="n-mockup">AZL-CLUSTER-01</span>
+    </div>
+    <div class="hdr-right">
+      <div class="ctl" data-note="n-controls">
+        <button id="btnReset" class="ctl-btn" type="button" title="Back to the start">&lt;&lt;</button>
+        <button id="btnBack" class="ctl-btn" type="button" title="Previous movement">&lt;</button>
+        <span class="stat"><em id="statStage">0</em> / <span id="statTotal">10</span></span>
+        <button id="btnNext" class="ctl-btn ctl-next" type="button" title="Next movement">&gt;</button>
+        <span class="ctl-gap" aria-hidden="true"></span>
+        <span class="ctl-label">Details:</span>
+        <button id="btnBuilt" class="built-btn" type="button" data-note="n-built" title="Cut away the interface and look underneath">BUILT</button>
+      </div>
+
+      <button id="notesToggle" class="notes-toggle" type="button">
+        Notes <span class="notes-count" id="notesCount">0</span>
+      </button>
+    </div>
+  </header>
+
+  <aside class="rail" data-note="n-movements">
+    <p class="cap">Movements</p>
+    <ol id="rail" class="rail-list"></ol>
+    <div class="rail-foot">
+      <p class="cap" data-note="n-kinds">Pathways</p>
+      <ul id="legend" class="legend"></ul>
+    </div>
+  </aside>
+
+  <main class="work">
+    <div class="work-head">
+      <p class="eyebrow"><span id="stageNum">00</span> <span id="stageFid" class="fid"></span></p>
+      <h2 class="work-title" id="stageTitle">Six machines</h2>
+      <p class="work-sub" data-note="n-copy"><span id="stageSub"></span> <span class="work-elapsed" id="stageElapsed" data-note="n-liveness"></span></p>
+    </div>
+
+    <!-- Wires span the fabric strip and the canvas, since edges reach the margin once machines demote. -->
+    <div class="field" id="field">
+      <svg class="wires" id="wires" aria-hidden="true"></svg>
+
+      <div class="fabric" id="fabric" data-note="n-fabric" hidden>
+        <span class="fabric-cap">Fabric</span>
+        <div class="fabric-cells" id="fabricCells"></div>
+      </div>
+
+      <section class="canvas-wrap" data-note="n-canvas">
+        <div class="canvas" id="canvas">
+          <div class="layers" id="layers"></div>
+          <div class="memstick" id="memstick" hidden></div>
+        </div>
+      </section>
+    </div>
+
+    <!-- Lights while BUILT is armed. Scoped to this pane because this is where the cutaway opens. -->
+    <span class="work-armed" aria-hidden="true"></span>
+  </main>
+
+  <!-- C2 and C4: one surface, collapsed by default. -->
+  <aside class="log-wrap">
+
+    <!-- The original brief, persistent. Movements mark it; the runs behind them live in BUILT. -->
+    <p class="cap cap-log" data-note="n-crit">
+      Acceptance criteria <span class="cap-hint" id="acMeta">18 Goals</span>
+    </p>
+    <ol class="ac" id="ac"></ol>
+
+    <p class="ac-key">
+      <span><b class="m-done">v</b> Verified</span>
+      <span><b class="m-bound">~</b> Met with caveat</span>
+      <span><b class="m-find">=</b> Met equivalent</span>
+      <span><b class="m-defer">-</b> Out of scope</span>
+    </p>
+  </aside>
+
+</div>
+
+<!-- Commentary layer. Sits above everything, changes nothing beneath it. -->
+<div class="notes-layer" id="notesLayer" aria-hidden="true"></div>
+<div class="notes-index" id="notesIndex" aria-hidden="true"></div>
+
+<!-- Click a node to explain it. A callout beside the thing, not a modal over the room. -->
+<aside class="callout" id="callout" hidden>
+  <span class="callout-stem" aria-hidden="true"></span>
+  <p class="callout-head"><span class="callout-title" id="calloutTitle"></span><span class="callout-meta" id="calloutMeta"></span></p>
+  <p class="callout-cap">What it is</p>
+  <p class="callout-t" id="calloutWhat"></p>
+  <p class="callout-cap">What it does</p>
+  <p class="callout-t" id="calloutRole"></p>
+  <p class="callout-cap">Here</p>
+  <p class="callout-t callout-here" id="calloutHere"></p>
+</aside>
+
+<!-- Not an overlay. A cutaway. The interface is removed over this area so the machinery under it
+     is visible, which is why nothing behind it is blurred. -->
+<div class="cut" id="built" hidden aria-hidden="true">
+  <div class="cut-scorch" aria-hidden="true"></div>
+  <div class="cut-hole">
+    <div class="cut-rim" aria-hidden="true"></div>
+    <div class="cut-inner">
+      <header class="cut-head">
+        <span class="cut-num" id="builtNum">02.5</span>
+        <span class="cut-titles">
+          <span class="cut-title" id="builtTitle"></span>
+          <span class="cut-sub" id="builtSub">underneath the picture, this is what ran</span>
+        </span>
+        <span class="cut-host" id="builtHost"></span>
+        <button class="cut-close" id="builtClose" type="button">close</button>
+      </header>
+
+      <div class="cut-body">
+        <section class="cut-pane cut-term">
+          <p class="cut-cap"><span id="builtCapL">Terminal</span> <span class="cut-cap-hint" id="builtReal"></span></p>
+          <div class="cut-termbody" id="builtTerm"></div>
+        </section>
+        <section class="cut-pane cut-steps">
+          <p class="cut-cap" id="builtCapR">Every command behind this movement</p>
+          <div class="cut-stepsbody" id="builtSteps"></div>
+        </section>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Director's cut intro. Opt in only, never part of the default run. -->
+<section id="intro" class="intro" aria-hidden="true">
+  <div class="intro-bar intro-bar-top" aria-hidden="true"></div>
+  <div class="intro-bar intro-bar-bottom" aria-hidden="true"></div>
+
+  <div class="intro-stage" id="introStage">
+    <div class="intro-banners" id="introBanners"></div>
+    <div class="intro-field" id="introField"></div>
+    <div class="intro-slate" id="introSlate"></div>
+  </div>
+
+  <div class="intro-cap">
+    <div class="intro-cap-block" id="introCap"></div>
+  </div>
+
+  <div class="intro-hud">
+    <span class="intro-act" id="introAct"></span>
+    <span class="intro-state" id="introState" aria-hidden="true"><i></i><i></i></span>
+    <span class="intro-track" id="introTrack"><span class="intro-fill" id="introFill"></span></span>
+    <span class="intro-end">
+      <p class="intro-prompt" id="introPrompt"></p>
+      <button id="introSkip" class="intro-skip" type="button">Skip intro</button>
+    </span>
+  </div>
+</section>
+
+<!-- Start gate. The console renders underneath immediately, so lifting this reveals movement 00. -->
+<div class="gate" id="gate">
+  <div class="gate-box">
+    <p class="gate-kick"><span class="gate-mark" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>Azure Local POC</p>
+    <h1 class="gate-title">From hardware stack to orchestration environment</h1>
+    <p class="gate-sub">Ten movements exploring Azure hybrid capabilities.</p>
+
+    <label class="gate-opt">
+      <input type="checkbox" id="gateIntro" checked>
+      <span class="gate-opt-text">
+        <strong>Play Intro: Struggles with the Stack</strong>
+        <em>The path from unprepared hardware to a working cluster. Or skip ahead to get started with the complete environment.</em>
+      </span>
+    </label>
+
+    <button type="button" class="gate-go" id="gateGo">Begin</button>
+  </div>
+</div>
+
+</div>
+</div>
+
+<script src="fit.js"></script>
+<script src="../shared/runs.js"></script>
+<script src="criteria.js"></script>
+<script src="mockup.js"></script>
+<script src="built.js"></script>
+<script src="explain.js"></script>
+<script src="answers.js"></script>
+<script src="notes.js"></script>
+<script src="../intro.js"></script>
+<script src="boot.js"></script>
+</body>
+</html>
