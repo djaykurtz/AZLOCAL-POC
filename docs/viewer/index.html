@@ -242,8 +242,31 @@ kbd { color: var(--ink); font: 1rem/1.35 var(--mono); }
     else await exitView();
   }
 
+  function trapTab(event) {
+    if (embedded) return;
+    const selector = 'a[href], button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex="0"]';
+    const focusable = root => Array.from(root.querySelectorAll(selector)).filter(element => element.getClientRects().length && getComputedStyle(element).visibility !== 'hidden');
+    const doc = ready && frame.contentDocument;
+    let inside = [];
+    if (doc) {
+      const intro = doc.getElementById('intro');
+      const gate = doc.getElementById('gate');
+      const scope = intro.classList.contains('on') ? intro : !gate.hidden && !gate.classList.contains('off') ? gate : doc;
+      inside = focusable(scope);
+    }
+    const targets = document.fullscreenElement === frame ? inside : focusable(viewer).flatMap(element => element === frame ? inside.length ? inside : [frame] : [element]);
+    if (!targets.length) return;
+    const current = document.activeElement === frame && doc ? doc.activeElement : document.activeElement;
+    const index = targets.indexOf(current);
+    const next = index < 0 ? event.shiftKey ? targets.length - 1 : 0 : (index + (event.shiftKey ? -1 : 1) + targets.length) % targets.length;
+    event.preventDefault();
+    event.stopPropagation();
+    targets[next].focus();
+  }
+
   async function handleKeys(event) {
     if (!visible) return;
+    if (event.key === 'Tab') { trapTab(event); return; }
     if (event.key === 'Escape') {
       event.preventDefault();
       event.stopPropagation();

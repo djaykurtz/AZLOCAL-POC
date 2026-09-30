@@ -84,7 +84,7 @@ The composition has a native 1536 x 864 stage and scales at the same 16:9 aspect
 
 The source layout is retained as a dated engineering snapshot under `source/`, with example environment identifiers. Commands and paths are relative to that directory and may describe environment-specific or historical behavior. Read the relevant runbook and configuration before running any infrastructure automation. Serving the capstone does not require executing these files.
 
-The same-origin `viewer/?embed=1` route supplies only the presentation and guidance for an embedding host's own modal. It requests exit with `{type: 'capstone-viewer:exit'}` sent to its parent's exact `location.origin`. Hosts must validate both the sender origin and iframe window, retain the iframe across closes, and restore focus/scroll. The viewer accepts only typed parent visibility and Escape messages from that exact origin/window; it does not evaluate commands or perform live operations.
+The same-origin `viewer/?embed=1` route supplies only the presentation and guidance for an embedding host's own modal. It requests exit with `{type: 'capstone-viewer:exit'}` sent to its parent's exact `location.origin`. Hosts must validate both the sender origin and iframe window, own modal focus containment, and restore trigger focus/scroll. Keeping the iframe preserves deck position; removing it on exit restarts the deck next time. The viewer accepts only typed parent visibility and Escape messages from that exact origin/window; it does not evaluate commands or perform live operations.
 
 ## Reusing the infrastructure examples
 
