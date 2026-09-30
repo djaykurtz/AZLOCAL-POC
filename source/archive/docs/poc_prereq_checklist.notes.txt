@@ -1,0 +1,337 @@
+########## Azure Local POC // Prerequisite Checklist
+# Subscription: contoso-lab-sub
+# Target: 6x Precision 7960 Rack or similar
+#
+# Legend:
+#   [PLATFORM]   platform team, remote architects
+#   [ONSITE]    Requires physical access to hardware
+#   [NETWORK]   Requires Networking team
+#   [DIRECTORY]        Requires Active Directory / Domain team
+#   [DC-TECH]       Requires datacenter technician / hardware role
+#   [SECURITY]  Requires Security team
+#
+# Checkbox states:
+#   [ ]  Not started
+#   [~]  Assumed done, not verified by platform team
+#   [x]  Confirmed complete
+#
+# NOTE on Active Directory:
+#   Not yet confirmed whether this deployment will use existing Microsoft
+#   corp AD or a standalone domain. Steps below assume a managed OU within
+#   an existing domain. If a separate domain is needed, additional planning
+#   is required: domain controller deployment, DNS delegation, trust
+#   relationships. This decision affects
+#   Phases 2, 3, and 6.
+
+#### Phase 0 // Physical and BIOS Configuration
+# Owner: [DC-TECH] [ONSITE]
+# Cannot be done remotely unless iDRAC/BMC is already accessible.
+# This phase blocks everything else.
+#
+# UPDATE 2026-06-11 (hardware spec lock):
+#   The original BIOS spec below assumed a server-class SAS HBA that
+#   does NOT exist in the Dell Precision 7960 Rack chassis, and the
+#   "drive symmetry" requirement was buried as a sub-comment. Both
+#   got missed. The storage build-out is now an explicit phase in the
+#   sibling file (poc_prereq_checklist.txt Phase 0a) and the BIOS
+#   target state lives in its own reference file. Canonical sources:
+#     - decisions/0003-storage-spec-lock.md   (procurement + rationale)
+#     - bios_ideal_state.txt                  (per-node BIOS settings)
+#     - poc_prereq_checklist.txt Phase 0a     (executable checklist)
+#   The legacy items below are preserved for historical context but
+#   should not be used as the smart-hands BIOS spec -- read
+#   bios_ideal_state.txt instead.
+#
+# FUTURE: Once iDRAC is reachable, most of these BIOS steps can be automated
+# using Ansible with the dellemc.openmanage collection over Redfish. This would
+# allow platform team to run a single playbook against new nodes that have been
+# plugged in, covering storage controller mode, virtualization settings, boot
+# order, and hardware inventory collection without anyone onsite. Goal is a
+# repeatable Phase 0 that makes onboarding additional systems trivial.
+
+- [~] [DC-TECH] [ONSITE] Confirm 6 nodes are racked, cabled, and powered on
+      # ASSUMED DONE. BMC addresses assigned but not independently verified by platform team.
+- [~] [DC-TECH] [ONSITE] Verify each node has iDRAC/BMC configured with a management IP
+      # ASSUMED DONE. BMC addresses received, IPv6 on lab.example.com domain:
+      #   azl-node-01adm.lab.example.com  2001:db8:90:f087:1d::c12:1
+      #   azl-node-02adm.lab.example.com  2001:db8:90:f087:1d::c12:2
+      #   azl-node-03adm.lab.example.com  2001:db8:90:f087:1d::c12:3
+      #   azl-node-04adm.lab.example.com  2001:db8:90:f087:1d::c12:4
+      #   azl-node-05adm.lab.example.com  2001:db8:90:f087:1d::c12:5
+      #   azl-node-06adm.lab.example.com  2001:db8:90:f087:1d::c12:6
+      # NOTE: iDRAC IPv6 addresses are NOT routable from AzVPN.
+      # The adm names do not resolve in DNS from AzVPN.
+      # iDRAC access requires a separate, specific VPN connection.
+      # Once on the correct VPN, remote BIOS management and Phase 0
+      # automation via Ansible/Redfish should be possible.
+      #
+      # OS management interfaces confirmed reachable on IPv4 via AzVPN:
+      #   azl-node-01.lab.example.com  10.10.1.187
+      #   azl-node-02.lab.example.com  10.10.1.188
+      #   azl-node-03.lab.example.com  10.10.1.189
+      #   azl-node-04.lab.example.com  10.10.1.190
+      #   azl-node-05.lab.example.com  10.10.1.191
+      #   azl-node-06.lab.example.com  10.10.1.192
+- [ ] [DC-TECH] [ONSITE] Set storage controller to HBA / passthrough mode, NOT RAID
+      # Storage Spaces Direct requires direct-attached drives. RAID is unsupported.
+      # Dell BIOS path: System Setup > Device Settings > RAID Controller > Convert to Non-RAID
+      #
+      # CORRECTION 2026-06-11: the Precision 7960 Rack has no SAS HBA --
+      # this line was a wrong assumption that hid the real fix. Real
+      # spec: install a PCIe M.2 carrier (ASUS Hyper M.2 X16 Gen 4) in
+      # Slot 6 with 2x NVMe drives per node, and flip BIOS NVMe Mode /
+      # VROC / Slot Bifurcation per bios_ideal_state.txt.
+      # See decisions/0003-storage-spec-lock.md for the full call.
+- [ ] [DC-TECH] [ONSITE] Enable Intel VT-x and VT-d in BIOS
+      # Required for Hyper-V.
+      # Dell BIOS path: Processor Settings > Virtualization Technology
+- [ ] [DC-TECH] [ONSITE] Enable Execute Disable / XD bit in BIOS
+      # Required for hardware-enforced DEP.
+- [ ] [DC-TECH] [ONSITE] Set boot order for OS install via PXE or USB/virtual media
+- [ ] [DC-TECH] [ONSITE] Confirm all 6 nodes have identical NIC configuration
+      # The Azure portal wizard rejects mismatched adapters across nodes.
+- [ ] [DC-TECH] [ONSITE] Document hardware inventory per node:
+      #   CPU model and core count
+      #   Total RAM, minimum 32 GB per node
+      #     STATUS 2026-06-11: all 4 active nodes report 31.5 GB
+      #     visible (BMC carves ~512 MB out of 32 GB physical). Under
+      #     the floor. As of 2026-06-18, assume no additional RAM is
+      #     available for this POC; proceed and escalate only if the
+      #     Azure Local validator explicitly blocks on memory.
+      #   Drive types, counts, and sizes. Must be symmetric across all nodes.
+      #     STATUS 2026-06-11: nodes ship with one boot M.2 only,
+      #     which fails S2D (no poolable data drive + BusType=RAID via
+      #     VROC). Build-out tracked in poc_prereq_checklist.txt
+      #     Phase 0a; spec frozen in decisions/0003-storage-spec-lock.md.
+      #   NIC models and port counts
+      #   BMC/iDRAC IP address
+
+# Deliverable from the datacenter technician: hardware inventory sheet and 6 BMC IP addresses
+# -------------------------------------------------------------------------
+
+#### Phase 1 // Network Preparation
+# Owner: [NETWORK]
+# The platform team provides the requirements. Networking team implements on switches and firewalls.
+# Blocks OS imaging and deployment since nodes need IPs and Azure outbound access.
+
+- [ ] [NETWORK] Allocate a management VLAN and subnet for the 6 nodes
+      # Each node needs a static management IP.
+      # Also reserve at least 6 contiguous static IPs in this subnet
+      # beyond the node IPs. These are consumed by Azure Local infrastructure
+      # services: Arc resource bridge, failover clustering, etc.
+- [ ] [NETWORK] Allocate 2 storage VLANs, default IDs 711 and 712
+      # Used for Storage Spaces Direct replication traffic between nodes.
+      # If nodes are direct-cabled for storage with no switch, storage VLANs are not needed.
+- [ ] [NETWORK] Configure switch ports for management and storage VLANs
+      # Trunk ports for NICs carrying multiple traffic types.
+      # Access ports if traffic types are on dedicated NICs.
+- [ ] [NETWORK] Confirm DNS server IP that resolves the AD domain
+      # DNS server IP must NOT be in 10.96.0.0/12 or 10.244.0.0/16, reserved by Kubernetes.
+- [ ] [NETWORK] Confirm default gateway for the management subnet
+- [ ] [NETWORK] Open outbound firewall rules for Azure endpoints
+      # Nodes need HTTPS 443 outbound to Azure services.
+      # Full list: https://learn.microsoft.com/en-us/azure/azure-local/concepts/firewall-requirements
+      # The Environment Checker tool validates connectivity once nodes are imaged.
+- [ ] [PLATFORM] [NETWORK] Confirm nodes can reach corp network resources bidirectionally
+      # Azure Local VMs will need to communicate with corp resources.
+      # Routing between the Azure Local management subnet and corp must be in place.
+
+# Deliverable from Networking:
+#   Management subnet, mask, gateway, DNS
+#   6 node IPs + 6 infrastructure IPs as a contiguous block
+#   Storage VLAN IDs, or confirmation of switchless storage
+#   Firewall rule confirmation
+# -------------------------------------------------------------------------
+
+#### Phase 2 // Active Directory Preparation
+# Owner: [DIRECTORY]
+# The platform team provides the requirements. AD team creates the OU and service account.
+# Blocks the cloud deployment wizard in Phase 6.
+
+- [ ] [DIRECTORY] Determine AD strategy for the POC
+      # OPEN QUESTION: Will this POC use existing corporate AD
+      # such as corp.example.com, or a standalone/isolated domain?
+      # If standalone: need to plan domain controller deployment, DNS, and
+      # any trust relationships before proceeding.
+      # If corp AD: confirm platform team can request OU and account creation.
+- [ ] [DIRECTORY] Create a dedicated Organizational Unit for Azure Local objects
+      # Example: OU=AzureLocal,OU=Servers,DC=corp,DC=example,DC=com
+      # OU path must not contain: & " ' < >
+      # OU must not be at the top level of the domain.
+- [ ] [DIRECTORY] Create a deployment service account in that OU
+      # Used by the Azure Local deployment process.
+      # Password: 14+ characters, mixed case, number, special character.
+      # Account name must not be "admin".
+      # Account needs permissions to create and manage objects within the OU.
+- [ ] [DIRECTORY] Confirm the domain FQDN for deployment
+- [ ] [DIRECTORY] Do NOT domain-join the nodes before deployment
+      # The Azure Local deployment process handles domain join automatically.
+      # Pre-joined machines will fail validation.
+
+# Deliverable from AD:
+#   OU distinguished name
+#   Deployment service account username
+#   Deployment service account password, securely transferred for Key Vault
+#   Domain FQDN
+# -------------------------------------------------------------------------
+
+#### Phase 3 // OS Imaging
+# Owner: [DC-TECH] [ONSITE], or [PLATFORM] via iDRAC virtual media if BMC is accessible
+# Blocks Arc registration.
+#
+# NOTE on OEM bootstrap USB: Some validated hardware vendors provide a
+# pre-built USB drive that combines the HCI OS image, hardware drivers, an
+# unattended install answer file, and the Arc registration script. Plugging
+# it in and booting effectively collapses Phase 3 and Phase 5 into a single
+# step. We do not believe we were provided one for this POC, and it is not
+# required. The manual steps below achieve the same result. If an OEM USB
+# does surface, it would simplify this phase significantly.
+
+- [ ] [PLATFORM] Download the Azure Stack HCI OS ISO
+      # Azure portal > Azure Local > Download OS
+      # Or from Visual Studio Subscriptions / VLSC
+- [ ] [DC-TECH] [ONSITE] Image all 6 nodes with Azure Stack HCI OS
+      # Options:
+      #   iDRAC virtual media, remote if BMC IPs are reachable. Mount ISO, boot, install.
+      #   USB boot media, onsite.
+      #   PXE/WDS if available in the environment.
+      # Use the same edition on all nodes.
+- [ ] [DC-TECH] [ONSITE] Set IDENTICAL local admin credentials on every node
+      # 14+ characters, mixed case, number, special character.
+      # These credentials go into the Azure portal wizard later.
+- [ ] [DC-TECH] [ONSITE] Assign static management IPs from the allocation in Phase 1
+      # Or configure DHCP reservations so IPs are stable.
+- [ ] [DC-TECH] [ONSITE] Confirm each node has the same OS version
+      # Run: Get-ComputerInfo | Select-Object OsVersion, OsBuildNumber
+      # All 6 must match exactly.
+
+# Deliverable from the datacenter technician:
+#   Confirmation all 6 nodes imaged and accessible
+#   Local admin credentials, securely transferred
+#   IP address assignment per node
+# -------------------------------------------------------------------------
+
+#### Phase 4 // Azure Preparation
+# Owner: [PLATFORM]
+# Blocks Arc registration and cloud deployment.
+
+- [ ] [PLATFORM] Register the Microsoft.AzureStackHCI resource provider
+      # az provider register --namespace Microsoft.AzureStackHCI
+      # Current status in contoso-lab-sub: NotRegistered as of 2026-04-27 scan.
+      # Other required providers already registered: HybridCompute, GuestConfiguration, HybridConnectivity.
+- [ ] [PLATFORM] Confirm IAM permissions
+      # Need User Access Administrator + Contributor at subscription scope.
+      # Current status: Contributor confirmed, 2026-04-27 scan.
+      # May need to request User Access Administrator elevation.
+- [ ] [PLATFORM] Create the resource group or defer to portal wizard
+      # Planned: rg-other-04 in eastus
+- [ ] [PLATFORM] Decide on Key Vault strategy
+      # Option A: Create a new Key Vault during deployment. Simplest approach.
+      # Option B: Reuse a separately authorized kv-lab-secrets or kv-other-01.
+      # Key Vault must not have Private Endpoints enabled.
+- [ ] [PLATFORM] Decide on cloud witness Storage Account
+      # A small storage account is needed for the cluster witness.
+      # One account per cluster, cannot share across clusters in this release.
+- [ ] [SECURITY] [PLATFORM] Review security compliance KPIs requirements for the deployment
+      # Document which security controls apply.
+      # Azure Local supports BitLocker, Credential Guard, WDAC, SMB signing/encryption.
+      # The portal wizard defaults to "Recommended security settings" which is the highest level.
+
+# -------------------------------------------------------------------------
+
+#### Phase 5 // Arc Registration
+# Owner: [PLATFORM], requires remote PowerShell access to each node
+# Depends on Phase 3 complete and Phase 4 complete.
+# Blocks the cloud deployment wizard.
+
+- [ ] [PLATFORM] Verify remote PowerShell connectivity to all 6 nodes
+      # Enter-PSSession -ComputerName <node-IP> -Credential (Get-Credential)
+- [ ] [PLATFORM] Run the Azure Arc agent bootstrap on each node
+      # Registers each machine as an Arc-connected resource in Azure.
+      # Docs: https://learn.microsoft.com/en-us/azure/azure-local/deploy/deployment-arc-register-server-permissions
+- [ ] [PLATFORM] Verify all 6 nodes appear as Arc machines in the Azure portal
+      # Portal > Azure Arc > Machines. All 6 should show Connected.
+- [ ] [PLATFORM] Wait for Arc extensions to auto-install on each node
+      # The portal installs required extensions automatically.
+      # Status should change to Ready. May take several minutes.
+- [ ] [PLATFORM] Run the Environment Checker on one node
+      # Validates outbound connectivity to all required Azure endpoints.
+      # If this fails, loop back to Networking for firewall rule adjustments.
+
+# -------------------------------------------------------------------------
+
+#### Phase 6 // Cloud Deployment via Azure Portal Wizard
+# Owner: [PLATFORM], roughly 2 to 2.5 hours for 6 nodes
+# Depends on ALL previous phases complete.
+
+- [ ] [PLATFORM] Azure Portal > Azure Local > Create instance
+- [ ] [PLATFORM] Select subscription contoso-lab-sub, RG rg-other-04
+- [ ] [PLATFORM] Add the 6 Arc machines, validate them. About 15 minutes.
+- [ ] [PLATFORM] Create or select Key Vault
+- [ ] [PLATFORM] Configure networking intents
+      # Choose traffic grouping pattern based on NIC count:
+      #   2 NICs: group all traffic
+      #   4 NICs: group mgmt+compute on 2, storage on 2. Recommended.
+      #   6+ NICs: custom configuration
+      # Enter storage VLAN IDs from Phase 1.
+      # Enter management subnet info: IPs, mask, gateway, DNS.
+- [ ] [PLATFORM] Configure management settings
+      # AD domain FQDN from Phase 2
+      # OU distinguished name from Phase 2
+      # Deployment account credentials from Phase 2
+      # Local admin credentials from Phase 3
+      # Cloud witness storage account
+- [ ] [PLATFORM] Set security level. Recommended = highest.
+- [ ] [PLATFORM] Create workload volumes. Recommend letting the wizard auto-create.
+- [ ] [PLATFORM] Validate, about 15 min, then Deploy, about 2 to 2.5 hours
+
+# -------------------------------------------------------------------------
+
+#### Phase 7 // Post-Deployment Validation
+# Owner: [PLATFORM]
+
+- [ ] [PLATFORM] Verify in portal: cluster, Arc resource bridge, custom location, infra logical network all present
+- [ ] [PLATFORM] Enable health monitoring alerts for storage pool at 70% threshold
+- [ ] [PLATFORM] Enable RDP if needed via Enable-ASRemoteDesktop. Disabled by default.
+- [ ] [PLATFORM] Run Sprint 2 test suite:
+      # ansible-playbook playbooks/roles/azureLocal/tests/sprint2_cluster.yml \
+      #   -i inventory/AZLOC-POC/inv-azloc-poc.yml --tags validate
+- [ ] [PLATFORM] Run Sprint 1 connectivity validation against the live nodes:
+      # ansible-playbook playbooks/roles/azureLocal/tests/sprint1_connectivity.yml \
+      #   -i inventory/AZLOC-POC/inv-azloc-poc.yml --vault-password-file=vault/.vault_key.txt
+
+# =============================================================================
+# COORDINATION SUMMARY
+# =============================================================================
+#
+# Team          Phases       What platform team needs from them
+# ------------  -----------  ----------------------------------------------
+# DC-TECH       0, 3         BIOS config, node imaging, local admin creds,
+#                             hardware inventory, BMC IPs, IP assignment
+#
+# Networking    1, 5*        VLAN allocation, switch config, subnet + IPs,
+#               * if firewall DNS, gateway, firewall rules for Azure outbound
+#               issues
+#
+# AD / Domain   2            OU creation, deployment service account,
+#                             domain FQDN, do NOT pre-join machines.
+#                             TBD: existing MS corp AD or standalone domain.
+#
+# Security      4            security compliance KPIs review, Key Vault strategy,
+#                             security settings approval
+#
+# The platform team       4, 5, 6, 7   Azure prep, Arc registration, portal wizard,
+#                             validation, Ansible test suites
+# =============================================================================
+#
+# CRITICAL PATH:
+#   Phase 0 [DC-TECH] --> Phase 1 [Network] --> Phase 3 [DC-TECH imaging] -->
+#   Phase 2 [DIRECTORY], can run parallel with 0 and 1 -->
+#   Phase 4 [platform team], can run parallel with 1 through 3 -->
+#   Phase 5 [platform team], needs 3 and 4 done -->
+#   Phase 6 [platform team], needs everything done -->
+#   Phase 7 [platform team]
+#
+# Phases 0, 1, 2 can progress in parallel. Start all three conversations now.
+# Phase 4 can also start immediately. It is all remote/portal work.
+# =============================================================================

@@ -1,0 +1,413 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: azure-local-dashboard-ui
+  namespace: azure-local-dashboard
+data:
+  server.py: |
+    import json
+    import os
+    import ssl
+    import time
+    import uuid
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    from urllib.error import URLError
+    from urllib.request import Request, urlopen
+
+    APP_NAME = "azure-local-dashboard"
+    APP_VERSION = os.environ.get("APP_VERSION", "0.1.0")
+    STARTED_AT = time.time()
+    REQUEST_COUNT = 0
+    QUOTE_URL = "https://query1.finance.yahoo.com/v8/finance/chart/SPY?range=1d&interval=1m"
+    KUBERNETES_API = "https://kubernetes.default.svc"
+    SERVICE_ACCOUNT_DIR = "/var/run/secrets/kubernetes.io/serviceaccount"
+
+    def quote():
+        request = Request(QUOTE_URL, headers={"User-Agent": "AzureLocalPocDashboard/1.0"})
+        with urlopen(request, timeout=8) as response:
+            chart = json.load(response)["chart"]["result"][0]
+        meta = chart["meta"]
+        price = meta.get("regularMarketPrice")
+        previous_close = meta.get("previousClose")
+        return {
+            "symbol": meta.get("symbol", "SPY"),
+            "price": price,
+            "currency": meta.get("currency", "USD"),
+            "previousClose": previous_close,
+            "change": round(price - previous_close, 2) if price is not None and previous_close is not None else None,
+            "marketState": meta.get("marketState", "UNKNOWN"),
+            "asOf": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        }
+
+    def kubernetes_get(path):
+        with open(f"{SERVICE_ACCOUNT_DIR}/token", "r", encoding="utf-8") as token_file:
+            token = token_file.read().strip()
+        request = Request(f"{KUBERNETES_API}{path}", headers={"Authorization": f"Bearer {token}", "Accept": "application/json"})
+        context = ssl.create_default_context(cafile=f"{SERVICE_ACCOUNT_DIR}/ca.crt")
+        with urlopen(request, timeout=5, context=context) as response:
+            return json.load(response)
+
+    def kubernetes_state():
+        namespace = os.environ.get("POD_NAMESPACE", "azure-local-dashboard")
+        selector = "app.kubernetes.io/name=azure-local-dashboard"
+        deployment = kubernetes_get(f"/apis/apps/v1/namespaces/{namespace}/deployments/azure-local-dashboard")
+        pods = kubernetes_get(f"/api/v1/namespaces/{namespace}/pods?labelSelector={selector}")["items"]
+        replica_sets = kubernetes_get(f"/apis/apps/v1/namespaces/{namespace}/replicasets?labelSelector={selector}")["items"]
+        service = kubernetes_get(f"/api/v1/namespaces/{namespace}/services/azure-local-dashboard")
+        endpoint_slices = kubernetes_get(f"/apis/discovery.k8s.io/v1/namespaces/{namespace}/endpointslices?labelSelector=kubernetes.io/service-name%3Dazure-local-dashboard")["items"]
+        events = kubernetes_get(f"/api/v1/namespaces/{namespace}/events")["items"]
+        pod_rows = [{"name": pod["metadata"]["name"], "phase": pod.get("status", {}).get("phase", "Unknown"), "node": pod.get("spec", {}).get("nodeName", "Pending"), "ready": all(status.get("ready", False) for status in pod.get("status", {}).get("containerStatuses", [])), "restarts": sum(status.get("restartCount", 0) for status in pod.get("status", {}).get("containerStatuses", []))} for pod in pods]
+        recent_events = [{"reason": event.get("reason", "Unknown"), "message": event.get("message", ""), "time": event.get("eventTime") or event.get("lastTimestamp") or event["metadata"].get("creationTimestamp")} for event in events if event.get("involvedObject", {}).get("name", "").startswith("azure-local-dashboard")]
+        recent_events.sort(key=lambda event: event["time"] or "", reverse=True)
+        endpoints = sum(len([endpoint for endpoint in item.get("endpoints", []) if endpoint.get("conditions", {}).get("ready", False)]) for item in endpoint_slices)
+        return {"deployment": {"generation": deployment["metadata"].get("generation"), "desired": deployment["spec"].get("replicas", 0), "updated": deployment.get("status", {}).get("updatedReplicas", 0), "ready": deployment.get("status", {}).get("readyReplicas", 0), "available": deployment.get("status", {}).get("availableReplicas", 0)}, "pods": sorted(pod_rows, key=lambda pod: pod["name"]), "replicaSets": sorted([{"name": item["metadata"]["name"], "replicas": item.get("status", {}).get("replicas", 0)} for item in replica_sets], key=lambda item: item["name"], reverse=True), "service": {"clusterIP": service.get("spec", {}).get("clusterIP"), "ports": [port.get("port") for port in service.get("spec", {}).get("ports", [])], "readyEndpoints": endpoints}, "events": recent_events[:6], "asOf": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+
+    class Handler(BaseHTTPRequestHandler):
+        def send_json(self, payload, request_id, status=200):
+            body = json.dumps(payload).encode("utf-8")
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("X-Request-ID", request_id)
+            self.send_header("X-App-Version", APP_VERSION)
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_GET(self):
+          global REQUEST_COUNT
+          request_id = self.headers.get("X-Request-ID", str(uuid.uuid4()))
+          status = 200
+          REQUEST_COUNT += 1
+          if self.path == "/healthz":
+            self.send_json({"status": "ok", "app": APP_NAME, "version": APP_VERSION, "requestCount": REQUEST_COUNT}, request_id)
+          elif self.path == "/api/hello":
+            self.send_json({
+              "message": "Hello Kubernetes World",
+              "app": APP_NAME,
+              "version": APP_VERSION,
+              "pod": os.environ.get("POD_NAME", "unknown"),
+              "namespace": os.environ.get("POD_NAMESPACE", "unknown"),
+              "node": os.environ.get("NODE_NAME", "unknown"),
+              "requestCount": REQUEST_COUNT,
+              "uptimeSeconds": round(time.time() - STARTED_AT, 1),
+            }, request_id)
+          elif self.path == "/api/work":
+            started = time.perf_counter()
+            checksum = 0
+            for value in range(250000):
+              checksum = (checksum + (value * value)) % 1000003
+            self.send_json({
+              "pod": os.environ.get("POD_NAME", "unknown"),
+              "requestCount": REQUEST_COUNT,
+              "workMilliseconds": round((time.perf_counter() - started) * 1000, 2),
+              "checksum": checksum,
+            }, request_id)
+          elif self.path == "/api/kubernetes/state":
+            try:
+              self.send_json(kubernetes_state(), request_id)
+            except (KeyError, OSError, URLError, TimeoutError, ValueError) as error:
+              status = 503
+              self.send_json({"error": "Kubernetes state is temporarily unavailable.", "detail": str(error)}, request_id, status)
+          elif self.path == "/api/quote":
+            try:
+              self.send_json(quote(), request_id)
+            except (KeyError, TypeError, URLError, TimeoutError, ValueError) as error:
+              status = 503
+              self.send_json({"error": "Quote data is temporarily unavailable.", "detail": str(error)}, request_id, status)
+          elif self.path == "/" or self.path == "/index.html":
+            with open("/dashboard/index.html", "rb") as page:
+              body = page.read()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("X-Request-ID", request_id)
+            self.send_header("X-App-Version", APP_VERSION)
+            self.end_headers()
+            self.wfile.write(body)
+          else:
+            status = 404
+            self.send_json({"error": "Not found"}, request_id, status)
+          print(json.dumps({
+            "requestId": request_id,
+            "method": self.command,
+            "path": self.path,
+            "status": status,
+            "pod": os.environ.get("POD_NAME", "unknown"),
+            "version": APP_VERSION,
+          }), flush=True)
+
+        def log_message(self, format, *args):
+            print("%s - %s" % (self.address_string(), format % args))
+
+    ThreadingHTTPServer(("", 8080), Handler).serve_forever()
+  index.html: |
+    <!doctype html>
+    <html lang="en">
+    <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1">
+      <title>Hello Kubernetes World</title>
+      <style>
+        :root { --ink: #13233c; --muted: #536273; --line: #d7dee7; --bg: #eef4f7; --panel: #ffffff; --green: #0d7a46; --red: #b42318; --blue: #0067b1; --gold: #ad6b00; }
+        * { box-sizing: border-box; }
+        body { margin: 0; color: var(--ink); background: var(--bg); font-family: Georgia, 'Times New Roman', serif; }
+        main { max-width: 980px; margin: 0 auto; padding: 32px 22px 48px; }
+        header { border-bottom: 3px solid var(--ink); padding-bottom: 18px; }
+        h1 { margin: 0; font-size: 36px; font-weight: 600; }
+        .sub { color: var(--muted); font-family: 'Trebuchet MS', sans-serif; font-size: 14px; margin-top: 8px; }
+        .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-top: 22px; }
+        .lab { background: var(--panel); border: 1px solid var(--line); margin-top: 16px; }
+        .lab-content { padding: 16px; font-family: 'Trebuchet MS', sans-serif; }
+        .controls { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+        button { background: var(--blue); border: 1px solid var(--blue); color: #fff; cursor: pointer; font: 600 13px 'Trebuchet MS', sans-serif; padding: 8px 11px; border-radius: 2px; }
+        button.secondary { background: #fff; color: var(--blue); }
+        button:disabled { cursor: wait; opacity: .65; }
+        .state-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 12px 0; }
+        .state { background: #f5f8fa; border: 1px solid var(--line); padding: 10px; }
+        .state strong { display: block; font-size: 20px; margin-top: 4px; }
+        .flow { background: var(--ink); border: 1px solid #233757; color: #fff; margin-top: 16px; }
+        .flow h2 { border-bottom-color: #40526b; font-family: 'Trebuchet MS', sans-serif; }
+        .flow-content { overflow-x: auto; padding: 18px 16px; }
+        .flow-track { align-items: stretch; display: flex; gap: 8px; min-width: 790px; }
+        .flow-node { background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.24); min-height: 126px; padding: 12px; width: 150px; }
+        .flow-node.live { border-color: var(--green); box-shadow: inset 3px 0 0 var(--green); }
+        .flow-node.evidence { border-color: var(--gold); box-shadow: inset 3px 0 0 var(--gold); }
+        .flow-node.planned { border-color: #7696bf; box-shadow: inset 3px 0 0 #7696bf; }
+        .flow-title { font: 600 13px 'Trebuchet MS', sans-serif; }
+        .flow-detail { color: #d6dfeb; font: 12px 'Trebuchet MS', sans-serif; line-height: 1.55; margin-top: 8px; }
+        .flow-arrow { align-items: center; color: var(--gold); display: flex; font: 26px Georgia, serif; }
+        .list { border-top: 1px solid var(--line); margin-top: 12px; padding-top: 10px; }
+        .list-row { border-bottom: 1px solid #edf1f4; font-size: 13px; padding: 8px 0; }
+        .list-row:last-child { border-bottom: 0; }
+        section { background: var(--panel); border: 1px solid var(--line); min-height: 240px; }
+        h2 { margin: 0; padding: 14px 16px; border-bottom: 1px solid var(--line); font: 600 16px 'Trebuchet MS', sans-serif; }
+        .content { padding: 18px 16px; font-family: 'Trebuchet MS', sans-serif; }
+        .value { font-size: 38px; line-height: 1; margin: 12px 0 8px; }
+        .positive { color: var(--green); } .negative { color: var(--red); }
+        .meta { color: var(--muted); font-size: 13px; line-height: 1.6; }
+        .badge { display: inline-block; background: #dbeeff; color: #005997; font-size: 12px; font-weight: 600; padding: 4px 8px; border-radius: 2px; }
+        .error { color: var(--red); font-size: 14px; }
+        footer { color: var(--muted); font: 12px 'Trebuchet MS', sans-serif; margin-top: 18px; line-height: 1.5; }
+        @media (max-width: 720px) { .grid { grid-template-columns: 1fr; } h1 { font-size: 30px; } }
+      </style>
+    </head>
+    <body>
+      <main>
+        <header>
+          <h1>Hello Kubernetes World</h1>
+          <div class="sub">AZL-CLUSTER-01 | Two-replica workload on AKS Arc</div>
+        </header>
+        <div class="grid">
+          <section><h2>Market quote</h2><div class="content" id="quote"><div class="meta">Loading current SPY quote...</div></div></section>
+          <section><h2>Serving replica</h2><div class="content" id="hello"><div class="meta">Loading Kubernetes identity...</div></div></section>
+          <section><h2>Replica work</h2><div class="content" id="work"><div class="meta">Running bounded work...</div></div></section>
+        </div>
+        <section class="lab">
+          <h2>Kubernetes Lab</h2>
+          <div class="lab-content">
+            <div class="meta">A Deployment states the desired replica count. A ReplicaSet maintains it, the scheduler places pods on worker nodes, and the Service routes requests only to ready endpoints.</div>
+            <div class="controls"><button id="refresh">Refresh live state</button><button id="one-work" class="secondary">Run one work request</button><button id="burst" class="secondary">Run 10-second work burst</button></div>
+            <div class="state-grid" id="deployment-state"><div class="state">Loading live Deployment state...</div></div>
+            <div class="list"><strong>Pods and worker placement</strong><div id="pods" class="meta">Loading...</div></div>
+            <div class="list"><strong>Recent controller events</strong><div id="events" class="meta">Loading...</div></div>
+            <div class="list"><strong>Last work request</strong><div id="work-result" class="meta">No manual request yet.</div></div>
+          </div>
+        </section>
+        <section class="flow">
+          <h2>Under the hood</h2>
+          <div class="flow-content">
+            <div class="flow-track" id="flow-canvas"><div class="flow-node">Loading system flow...</div></div>
+          </div>
+        </section>
+        <footer>Panels refresh every 10 seconds. Market data is informational and may be delayed. Each refresh runs bounded CPU work on the serving replica. Kubernetes data is read-only. This workload has no Azure or Kubernetes write capability.</footer>
+      </main>
+      <script>
+        async function loadJson(path) {
+          const response = await fetch(path, { cache: 'no-store' });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error || 'Request failed');
+          return data;
+        }
+        async function loadQuote() {
+          const target = document.getElementById('quote');
+          try {
+            const data = await loadJson('/api/quote');
+            const change = data.change === null ? 'Unavailable' : `${data.change >= 0 ? '+' : ''}${data.change.toFixed(2)}`;
+            const style = data.change === null ? '' : (data.change >= 0 ? 'positive' : 'negative');
+            target.innerHTML = `<span class="badge">${data.symbol} | ${data.marketState}</span><div class="value">${data.price === null ? 'Unavailable' : data.price.toFixed(2)} ${data.currency}</div><div class="${style}">${change} from previous close</div><div class="meta">Previous close: ${data.previousClose ?? 'Unavailable'}<br>Retrieved: ${data.asOf}</div>`;
+          } catch (error) { target.innerHTML = `<div class="error">Quote unavailable: ${error.message}</div>`; }
+        }
+        async function loadHello() {
+          const target = document.getElementById('hello');
+          try {
+            const data = await loadJson('/api/hello');
+            target.innerHTML = `<span class="badge">${data.namespace} | v${data.version}</span><div class="value">${data.message}</div><div class="meta">Pod: ${data.pod}<br>Worker node: ${data.node}<br>Requests served: ${data.requestCount}<br>Uptime: ${data.uptimeSeconds}s</div>`;
+          } catch (error) { target.innerHTML = `<div class="error">Kubernetes identity unavailable: ${error.message}</div>`; }
+        }
+        async function loadWork() {
+          const target = document.getElementById('work');
+          try {
+            const data = await loadJson('/api/work');
+            target.innerHTML = `<span class="badge">bounded CPU work</span><div class="value">${data.workMilliseconds} ms</div><div class="meta">Pod: ${data.pod}<br>Requests served: ${data.requestCount}<br>Checksum: ${data.checksum}</div>`;
+          } catch (error) { target.innerHTML = `<div class="error">Work endpoint unavailable: ${error.message}</div>`; }
+        }
+        function text(value) { return String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char])); }
+        async function runWork(resultTarget) {
+          const data = await loadJson('/api/work');
+          if (resultTarget) resultTarget.innerHTML = `Pod <strong>${text(data.pod)}</strong> completed bounded work in <strong>${text(data.workMilliseconds)} ms</strong>. Request count: ${text(data.requestCount)}.`;
+          return data;
+        }
+        async function loadLab() {
+          const deploymentTarget = document.getElementById('deployment-state');
+          const podsTarget = document.getElementById('pods');
+          const eventsTarget = document.getElementById('events');
+          try {
+            const data = await loadJson('/api/kubernetes/state');
+            const deployment = data.deployment;
+            deploymentTarget.innerHTML = `<div class="state"><span class="meta">Desired</span><strong>${deployment.desired}</strong></div><div class="state"><span class="meta">Updated</span><strong>${deployment.updated}</strong></div><div class="state"><span class="meta">Ready</span><strong>${deployment.ready}</strong></div><div class="state"><span class="meta">Service endpoints</span><strong>${data.service.readyEndpoints}</strong></div>`;
+            podsTarget.innerHTML = data.pods.map(pod => `<div class="list-row"><strong>${text(pod.name)}</strong> | ${text(pod.phase)} | ready: ${text(pod.ready)} | restarts: ${text(pod.restarts)} | worker: ${text(pod.node)}</div>`).join('') || 'No pods returned.';
+            eventsTarget.innerHTML = data.events.map(event => `<div class="list-row"><strong>${text(event.reason)}</strong> | ${text(event.message)} | ${text(event.time)}</div>`).join('') || 'No matching events returned.';
+            renderFlow(data);
+          } catch (error) {
+            deploymentTarget.innerHTML = `<div class="error">Live Kubernetes state unavailable: ${text(error.message)}</div>`;
+            podsTarget.textContent = 'Unavailable.';
+            eventsTarget.textContent = 'Unavailable.';
+            document.getElementById('flow-canvas').innerHTML = `<div class="flow-node"><div class="flow-title">Live state unavailable</div><div class="flow-detail">${text(error.message)}</div></div>`;
+          }
+        }
+        function renderFlow(data) {
+          const canvas = document.getElementById('flow-canvas');
+          const workerNodes = [...new Set(data.pods.map(pod => pod.node))].join(', ') || 'waiting for placement';
+          const podDetails = data.pods.map(pod => `${pod.name}: ${pod.phase}`).join('<br>');
+          const node = (kind, title, detail) => `<div class="flow-node ${kind}"><div class="flow-title">${title}</div><div class="flow-detail">${detail}</div></div>`;
+          const arrow = '<div class="flow-arrow">&#8594;</div>';
+          canvas.innerHTML = [
+            node('planned', 'Source validation', 'GitHub Actions workflow defined.<br>Credential-free checks: Terraform, manifests, PowerShell.'),
+            arrow,
+            node('evidence', 'Terraform lifecycle', 'Verified POC evidence.<br>3 resources created, runtime verified, cleanup complete.'),
+            arrow,
+            node('live', 'AKS worker', `${text(workerNodes)}<br>${data.pods.length} live dashboard pod(s).`),
+            arrow,
+            node('live', 'ClusterIP Service', `${data.service.clusterIP || 'Cluster IP pending'}:${data.service.ports.join(', ')}<br>${data.service.readyEndpoints} ready EndpointSlice backend(s).`),
+            arrow,
+            node('live', 'Kubernetes pods', `Desired ${data.deployment.desired} | Ready ${data.deployment.ready}<br>${podDetails}`),
+          ].join('');
+        }
+        async function burstWork() {
+          const button = document.getElementById('burst');
+          const result = document.getElementById('work-result');
+          button.disabled = true;
+          const pods = [];
+          try {
+            for (let index = 0; index < 10; index++) {
+              const data = await runWork();
+              pods.push(data.pod);
+              result.textContent = `Burst request ${index + 1}/10 completed on ${data.pod}.`;
+              if (index < 9) await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+            result.innerHTML = `Completed 10 bounded requests. Serving pods observed: <strong>${text([...new Set(pods)].join(', '))}</strong>.`;
+          } catch (error) { result.innerHTML = `<span class="error">Burst stopped: ${text(error.message)}</span>`; }
+          finally { button.disabled = false; loadLab(); }
+        }
+        document.getElementById('refresh').addEventListener('click', () => { loadLab(); loadHello(); });
+        document.getElementById('one-work').addEventListener('click', async () => {
+          const target = document.getElementById('work-result');
+          try { await runWork(target); } catch (error) { target.innerHTML = `<span class="error">Work request failed: ${text(error.message)}</span>`; }
+        });
+        document.getElementById('burst').addEventListener('click', burstWork);
+        function refresh() { loadQuote(); loadHello(); loadWork(); loadLab(); }
+        refresh(); setInterval(refresh, 10000);
+      </script>
+    </body>
+    </html>
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: azure-local-dashboard
+  namespace: azure-local-dashboard
+  labels:
+    app.kubernetes.io/name: azure-local-dashboard
+    app.kubernetes.io/part-of: azure-local-dashboard
+    app.kubernetes.io/version: "0.1.0"
+  annotations:
+    poc.azurelocal.example.com/change: "stock-ticker-and-hello-kubernetes"
+    poc.azurelocal.example.com/telemetry-contract: "request-id, app-version, structured-stdout"
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: azure-local-dashboard
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: azure-local-dashboard
+    spec:
+      serviceAccountName: azure-local-dashboard
+      containers:
+        - name: web
+          image: mcr.microsoft.com/azure-cli:latest
+          command:
+            - python3
+            - /dashboard/server.py
+          env:
+            - name: APP_VERSION
+              value: "0.1.0"
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          ports:
+            - name: http
+              containerPort: 8080
+          resources:
+            requests:
+              cpu: 200m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          volumeMounts:
+            - name: dashboard-ui
+              mountPath: /dashboard
+              readOnly: true
+      volumes:
+        - name: dashboard-ui
+          configMap:
+            name: azure-local-dashboard-ui
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: azure-local-dashboard
+  namespace: azure-local-dashboard
+  labels:
+    app.kubernetes.io/name: azure-local-dashboard
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: azure-local-dashboard
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

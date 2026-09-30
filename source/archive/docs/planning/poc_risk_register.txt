@@ -1,0 +1,217 @@
+========================================================================
+  AZURE LOCAL POC // RISK REGISTER + SETTLED DESIGN
+  Authoritative single page. Grounded in live node checks + MS Learn docs.
+  Created 2026-07-10. Owner: platform team.
+========================================================================
+
+  Purpose: stop the churn. This file records (a) the settled design, (b)
+  what is VERIFIED vs UNVERIFIED on the real hardware, and (c) the exact
+  remaining blockers with evidence. Supersedes ad-hoc chat conclusions.
+
+========================================================================
+  SETTLED DESIGN (do not re-litigate)
+========================================================================
+  - Goal: FUNCTIONAL proof of concept. Prove Azure Local can host AKS /
+    Docker / Terraform. NOT production HA/DR/performance validation.
+    Source: poc_kubernetes_test_plan.txt, the original task notes ("test if it works").
+  - Scope: 4 active nodes (AZL-NODE-01..04) + 2 spare (05/06). ADR 0004.
+  - Network: SINGLE CONVERGED INTENT on one subnet. mgmt + compute + S2D
+    storage on the same NIC(s). No RDMA config, no jumbo, no DCB/PFC.
+    Source: docs/prerequisites.md, the POC plan (topology: single-converged-intent),
+    the original subnet request. This is a SUPPORTED topology, decided 2026-05-22.
+  - Storage: Storage Spaces Direct from the validated NVMe data disks in
+    each node. This is the cluster's storage; the network only carries the
+    replication traffic between nodes. Both are needed; neither is wasted.
+  - Connections per node: the written plan specified ONE converged link per
+    node (6 IPs for 6 nodes). Dual-NIC / dual-connection storage was NEVER
+    in the plan; it is a production-grade option deliberately traded away
+    for POC simplicity. Optionally add a 2nd link later for resilience
+    (config change, not a rebuild).
+
+========================================================================
+  VERIFIED ON REAL HARDWARE (live checks this session)
+========================================================================
+  [VERIFIED] Storage validation PASSES on node 01.
+     Invoke-AzStackHciHardwareValidation: 25 checks, 23 SUCCESS, 2 FAILURE.
+     All 6 disk/storage checks SUCCESS incl StoragePool. Data disks CanPool=True.
+  [VERIFIED] The ONLY hard (CRITICAL) blocker WAS the NetAdapter check
+     (AzStackHci_Hardware_Test_NetAdapter, Severity CRITICAL) - now RESOLVED
+     (see B1 below). Everything else that matters passes. GPU failure is
+     WARNING only (workstation display adapter, ConfigManagerErrorCode 10)
+     -> NON-BLOCKING.
+  [VERIFIED] NetAdapter gate wants: a PHYSICAL ethernet NIC that is Status=Up,
+     NdisMedium=0, NdisPhysicalMedium=14, non-USB, consistent across nodes.
+     It does NOT check link speed, Windows Server Catalog qualification, or
+     driver provider. (Those are separate DEPLOYMENT-WIZARD concerns, later.)
+  [VERIFIED - RESOLVED] The onboard Broadcom 1GbE ("CORP") reports
+     NdisPhysicalMedium=0 (Unspecified), NOT 14 -> it never satisfies the gate.
+     This is now MOOT: the Mellanox ports (below) carry the intent, not the 1GbE.
+     Kept here only so nobody re-attempts the dead-end "easy dual-1GbE" path.
+  [VERIFIED - BREAKTHROUGH 2026-07-10] The Mellanox ConnectX-5 100GbE NICs
+     (Slots 4/5) were not MISSING - they were administratively DISABLED (PnP
+     Problem code 22). Enable-PnpDevice per device brought them back with NO
+     driver/cabling/hardware change. After enable they enumerate as Port3/Port4,
+     Status=Up, 100 Gbps, NdisMedium=0, NdisPhysicalMedium=14, and
+     MediaConnectionState=Connected (the ports were ALREADY CABLED). The
+     CRITICAL NetAdapter gate now PASSES. Verified on nodes 01 and 02.
+  [VERIFIED] All 6 nodes Arc-connected (prior session). PIM elevated today
+     (Azure Stack HCI Administrator @ sub, User Access Administrator @ RG).
+
+========================================================================
+  REMAINING BLOCKERS (ordered)
+========================================================================
+  B1 [PARTIAL - hardware gate PASSES, deploy prerequisite remains] The NetAdapter
+     CRITICAL gate now PASSES. Root cause was the Mellanox ConnectX-5 ports being
+     DISABLED, not missing/uncabled. Fix = Enable-PnpDevice per device (free,
+     software-only, reversible); ports came up Up/100Gbps/PhysMedium=14/Connected.
+     Confirmed on nodes 01, 02.
+     - DEFERRED BLOCKER (fires at the deployment wizard, not hardware validation):
+       the enabled ports run the INBOX driver (Microsoft v2.53.23539.0). It passes
+       hardware validation, but Azure Local does NOT support inbox NIC drivers for
+       DEPLOYMENT, so the wizard is expected to reject it. This BLOCKS deploy - it
+       is not "non-blocking", it is a later-firing blocker. Must swap to NVIDIA
+       WinOF-2 across the fleet BEFORE the deployment wizard run (pnputil /add-driver).
+     - Add a network pre-flight gate (enable Mellanox + verify PhysMedium=14
+       per node) mirroring the storage Phase 0a, so this can't be missed again.
+  B2 [SETUP] Cluster witness required for even-node / single->two-node.
+     Use storage account azlocsa001 (cloud witness). Provision + key.
+  B3 [PROCESS] Consistency: whatever NIC carries the intent must be Up and
+     identical across all deployed nodes (SET requires symmetric adapters:
+     same make/model/speed).
+  B4 [RESOLVED 2026-07-13] Node 01 now has 3 data disks (3rd added over the
+     weekend) and all 3 are CanPool=True after diskpart clear. Fleet drive-count
+     standard (ADR 0011) met on 01. No longer a symmetry gap for the 4-node set.
+  B5 [BIOS BLOCKER - discovered 2026-07-13] Secure Boot is DISABLED on nodes
+     02, 03, 04, 05, 06 (enabled only on 01). Azure Local hardware validator
+     flags AzStackHci_Hardware_SecureBoot as CRITICAL. Secure Boot is a UEFI/BIOS
+     setting - CANNOT be enabled from the OS (Confirm-SecureBootUEFI is read-only).
+     FIX: enable Secure Boot in BIOS on 02-06 (KVM/smart-hands; iDRAC unlicensed
+     in this POC). Node 01 proves it is supported + works on this hardware. One
+     consistent toggle across 5 nodes. Blocks deploy on any node where it's off.
+
+========================================================================
+  DEPLOY-READINESS GATE - THE WHOLE FLIGHT (all stairs, honestly tagged)
+  Rule (user directive 2026-07-10): a gate passing at one step is meaningless
+  if later steps are still walls. "Ready to deploy" == EVERY row below is
+  [VERIFIED]. Any [DEFERRED-BLOCKER] or [NEEDS-VERIFICATION] means NOT ready.
+  Do NOT report "the next step is fine" - report the whole staircase.
+========================================================================
+  Tags: [VERIFIED]=proven on hardware/docs this session.
+        [DEFERRED-BLOCKER]=will block a LATER stage; not yet done.
+        [NEEDS-VERIFICATION]=believed but NOT confirmed; could be wrong.
+
+  1. [VERIFIED]          Storage poolable NVMe: node 01 (2 disk) + node 02 (3 disk)
+                         pass full hardware validation. Clear procedure proven twice.
+  2. [VERIFIED]          NetAdapter HARDWARE gate: passes after Mellanox Enable-PnpDevice
+                         on nodes 01, 02 (Up/100Gbps/PhysMedium=14/Connected).
+  3. [VERIFIED]          Arc: 6/6 nodes connected.
+  4. [DEFERRED-BLOCKER, but WinOF-2 itself UNVALIDATED] Inbox driver is now
+                         DOCUMENTED as unsupported for Azure Local (see #10), so moving off
+                         it IS a real deploy requirement - not merely contingent. HOWEVER we
+                         still do NOT know WinOF-2 passes on our 26100 kernel; a swap trades a
+                         known-good hardware-validation state for an untested one. Plan:
+                         install WinOF-2, THEN re-run hardware validation to confirm the ports
+                         still enumerate Up/PhysMedium=14 before trusting it. Never swap blind.
+  5. [DEFERRED-BLOCKER]  Node 01 3rd data disk: mixed 2/3-disk fleet blocked by add-server
+                         gate. Needs smart-hands + 1 drive. (B4)
+  6. [DEFERRED-BLOCKER]  Nodes 03-06 hardware build (3x NVMe): down now. When back,
+                         run scripts/Invoke-NodeStoragePrep.ps1 -NodeFqdn <node> [-Execute]
+                         (chains network pre-flight enable + data-disk clear + hardware
+                         validation in one command). Dry-run validated 2026-07-10.
+  7. [DEFERRED-BLOCKER]  Cluster witness: not provisioned. Cloud witness on
+                         azlocsa001. (B2)
+  8. [RESOLVED 2026-07-10]  Network pre-flight gate now EXISTS:
+                         scripts/Test-NetworkPreflight.ps1 (report-only, or -EnableDisabled)
+                         + Phase 0b in poc_prereq_checklist.txt. Verifies the exact validator
+                         filter (NdisMedium=0/Up/PhysMedium=14/non-USB) per node and enables
+                         disabled Mellanox ports. Confirmed PASS on nodes 01, 02.
+  9. [NEEDS-VERIFICATION] Switch for 3+ nodes: docs say a switch is REQUIRED above 2 nodes;
+                         switchless caps at 2. Availability of a switch NOT confirmed. (Decision 2)
+ 10. [VERIFIED-DOC 2026-07-10] Inbox drivers ARE documented as unsupported.
+                         MS Learn host-network-requirements, "Driver requirements" (page
+                         updated 2026-05-01): "Inbox drivers are not supported for use with
+                         Azure Local... An adapter is using an inbox driver if DriverProvider
+                         is Microsoft. If inbox driver is being used, download and install the
+                         latest driver from your OEM partner's website." Our Mellanox ports
+                         run DriverProvider=Microsoft -> WinOF-2 required (#4). NUANCE: the doc
+                         is a SUPPORT statement; whether the wizard HARD-BLOCKS vs warns at
+                         runtime is still untested, but we treat documented-unsupported as a
+                         requirement, not a maybe.
+ 11. [PARTIAL 2026-07-10] WinOF-2 is CONFIRMED the correct driver family for
+                         ConnectX-5 (NVIDIA page: "For ConnectX-4 and onwards... download
+                         WinOF-2"). NOT yet confirmed: exact version + OS-build (WS2022/2025
+                         x64 for the 26100 kernel) + direct download URL - the NVIDIA download
+                         table is JS-rendered and was not machine-extractable. ACTION: pull
+                         the exact package interactively from
+                         network.nvidia.com/products/adapter-software/ethernet/windows/winof-2
+                         and record version before pushing.
+ 12. [PARTIAL 2026-07-10] Firewall/FQDN allowlist: original firewall request
+                         verified THOROUGH against MS Learn firewall-requirements (page updated
+                         2026-04-22) - already covers outbound categories, internal node ports,
+                         AD, HTTPS-inspection-disabled, Arc-no-Private-Link, service-tag
+                         fallback. CORRECTED: Arc region is southcentralus (ADR 0001), so the
+                         published SouthCentralUS consolidated endpoint list is the AUTHORITATIVE
+                         cross-check (not "no list for westus3"). REMAINING ACTION: diff our
+                         tables against the SCUS list + confirm lab egress has no TLS inspection.
+
+  BOTTOM LINE (updated 2026-07-10): storage + hardware-NIC gate proven on 2
+  nodes. NOT deploy-ready. Remaining: 5 deferred blockers (WinOF-2 install+
+  re-validate, node-01 disk, nodes 03-06 build, witness, network pre-flight
+  gate) + 3 needs-verification (switch availability, exact WinOF-2 package,
+  SCUS firewall diff). Doc research this session CONFIRMED inbox-driver is
+  unsupported (#10) and validated the firewall list (#12). This is the real
+  distance, not "one step away".
+
+
+  Source: MS Learn learn.microsoft.com/azure/azure-local/manage/add-server
+  (azloc-2606), fetched 2026-07-10.
+========================================================================
+  - Azure Local supports dynamic scaling 1 -> 16 nodes. Add ONE node at a time.
+  - Supported jumps: single-node -> two-node (two-way mirror, switch OR
+    switchless, WITNESS REQUIRED); two -> three (three-way mirror, SWITCH ONLY,
+    witness optional); three -> N (three-way, SWITCH ONLY).
+    => 3+ nodes REQUIRES a switch. A switchless start caps at 2 nodes.
+  - HARD gate on add: new node must have the SAME NUMBER of data drives, or
+    the add is BLOCKED (error). CPU/mem lower only warns. -> keep drive counts
+    identical across nodes (our storage-symmetry work already aligns).
+  - Scaling out FROM single-node requires FIRST: (1) configure quorum witness,
+    (2) configure storage intent (Set-StorageNetworkIntent) if not done at deploy.
+  - New node needs: matching OS image (same solution version), Arc registration
+    with SAME RG/Region/Sub/Tenant, and roles (HCI Device Mgmt, Key Vault
+    Secrets User, etc.). Storage rebalance runs after add (can take days, low pri).
+  - Cannot permanently remove a node once added.
+  RECOMMENDATION: if nodes are ready, deploy the multi-node cluster directly
+  (simpler than the add-node dance: no witness+intent+rebalance+possible
+  switchless->switched transition). Use phased add-node only if blocked on
+  getting all nodes ready at once. The NIC-Up gate (B1) is identical either way.
+
+========================================================================
+  DECISION NEEDED FROM USER
+========================================================================
+  1. WinOF-2 driver supply for the B1 deploy prerequisite: user confirmed they can
+     obtain the NVIDIA WinOF-2 package. Drop it in .\drivers\ (or a reachable
+     share/URL) and it gets pushed fleet-wide before the deployment wizard run.
+     This is a DEFERRED BLOCKER for deploy, not an optional followup - the wizard
+     is expected to reject the inbox driver.
+  2. Topology if 3+ nodes: a switch is required (per verified docs). Confirm a
+     switch is available, or cap the direct-deploy at 2 nodes for switchless.
+
+========================================================================
+  NON-STORAGE OPEN ITEMS (not blocking storage)
+========================================================================
+  - GPU validation WARNING (workstation display adapter). Non-blocking;
+    disable device or accept documented waiver.
+  - Firewall/FQDN allowlist (Azure Local required endpoints) - noted as
+    followup in the original subnet request; confirm closed before deploy.
+  - [UNCONFIRMED - RECONCILE AT RACK, Monday] 100GbE cabling state UNKNOWN.
+    OS probe (scripts/probe_100gbe.ps1 + probe_100gbe_media.ps1) shows BOTH
+    Port3+Port4 on nodes 01 & 02 as ConnectorPresent=True, MediaConnectState=
+    Connected, 100Gbps, but DHCP disabled (intentional - no lab DHCP) so IPs
+    are APIPA 169.254.x and there are NO real ARP neighbors. This proves link
+    + a seated connector on all 4 ports, but does NOT prove: (a) cable TYPE
+    (DAC vs optical - inbox driver can't tell; needs WinOF-2 mlxlink), or
+    (b) what the far end is (switch / other node / loopback). User recalls ~1
+    cable/node; OS shows 2/node Connected - DISCREPANCY. Neither the agent nor
+    the user can confirm physical state from software. ACTION: physically trace
+    cables at the lab rack Monday; optionally run mlxlink after WinOF-2 to get
+    per-port module type + peer. Do NOT assume DAC or topology until then.

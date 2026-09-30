@@ -1,0 +1,85 @@
+{
+  "version": "Notebook/1.0",
+  "items": [
+    {
+      "type": 1,
+      "content": {
+        "json": "# Azure Local PoC\n\nCluster **AZL-CLUSTER-01** in resource group **rg-azlocal-poc-001**. This board is built from Azure Resource Graph (live, read-only). It shows the physical cluster nodes, the tenant VMs we run (with distro + version + health), and the cluster resource. Power state / private IP / image are not indexed by Resource Graph and are added in a later revision via an ARM data source."
+      },
+      "name": "title"
+    },
+    {
+      "type": 1,
+      "content": { "json": "## Cluster nodes (physical hosts)" },
+      "name": "text-nodes"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "resources | where type =~ 'microsoft.hybridcompute/machines' and kind == '' | where name has 'AZLOCAL' | project Node=name, OS=tostring(properties.osSku), Build=tostring(properties.osVersion), Status=tostring(properties.status), Agent=tostring(properties.agentVersion) | order by Node asc",
+        "size": 0,
+        "title": "Cluster nodes",
+        "queryType": 1,
+        "resourceType": "microsoft.resourcegraph/resources",
+        "crossComponentResources": [ "/subscriptions/00000000-0000-0000-0000-000000000001" ],
+        "visualization": "table",
+        "gridSettings": {
+          "formatters": [
+            { "columnMatch": "Status", "formatter": 18, "formatOptions": { "thresholdsOptions": "icons", "thresholds": [
+              { "operator": "==", "thresholdValue": "Connected", "representation": "success", "text": "{0}{1}" },
+              { "operator": "Default", "thresholdValue": null, "representation": "2", "text": "{0}{1}" } ] } }
+          ]
+        }
+      },
+      "name": "query-nodes"
+    },
+    {
+      "type": 1,
+      "content": { "json": "## Tenant VMs by slot (auto-populates from whatever is loaded)" },
+      "name": "text-vms"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "resources | where type =~ 'microsoft.hybridcompute/machines' and kind =~ 'HCI' | project Slot=tostring(tags.slot), Role=tostring(tags.role), VM=name, Distro=tostring(properties.osSku), Kernel=tostring(properties.osVersion), Status=tostring(properties.status), Agent=tostring(properties.agentVersion) | order by Slot asc, VM asc",
+        "size": 0,
+        "title": "Tenant VMs (distro + version + health)",
+        "queryType": 1,
+        "resourceType": "microsoft.resourcegraph/resources",
+        "crossComponentResources": [ "/subscriptions/00000000-0000-0000-0000-000000000001" ],
+        "visualization": "table",
+        "gridSettings": {
+          "formatters": [
+            { "columnMatch": "Status", "formatter": 18, "formatOptions": { "thresholdsOptions": "icons", "thresholds": [
+              { "operator": "==", "thresholdValue": "Connected", "representation": "success", "text": "{0}{1}" },
+              { "operator": "Default", "thresholdValue": null, "representation": "2", "text": "{0}{1}" } ] } }
+          ]
+        }
+      },
+      "name": "query-vms"
+    },
+    {
+      "type": 1,
+      "content": { "json": "## Cluster resource" },
+      "name": "text-cluster"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "resources | where type =~ 'microsoft.azurestackhci/clusters' | project Cluster=name, Status=tostring(properties.status), Location=location, ResourceGroup=resourceGroup",
+        "size": 0,
+        "title": "Azure Local cluster",
+        "queryType": 1,
+        "resourceType": "microsoft.resourcegraph/resources",
+        "crossComponentResources": [ "/subscriptions/00000000-0000-0000-0000-000000000001" ],
+        "visualization": "table"
+      },
+      "name": "query-cluster"
+    }
+  ],
+  "isLocked": false,
+  "fallbackResourceIds": [ "Azure Monitor" ]
+}

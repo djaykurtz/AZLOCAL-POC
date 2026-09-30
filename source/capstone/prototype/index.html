@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Azure Local Learning Console - Vision Prototype</title>
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<div class="grid-bed" aria-hidden="true"></div>
+<div class="spores" id="spores" aria-hidden="true"></div>
+
+<!-- Cold start curtain -->
+<section id="curtain" class="curtain">
+  <div class="curtain-inner">
+    <p class="curtain-eyebrow">Azure Local // AZL-CLUSTER-01</p>
+    <h1 class="curtain-title">Four machines.<br />Nothing growing yet.</h1>
+    <p class="curtain-sub">
+      This console assembles itself in front of you. Each layer takes root only after the capability
+      beneath it has been demonstrated on real hardware.
+    </p>
+    <div class="boot" id="boot">
+      <div class="boot-num" id="bootNum">00</div>
+      <div class="boot-track"><span class="boot-fill" id="bootFill"></span></div>
+      <div class="boot-line" id="bootLine">holding</div>
+    </div>
+    <button id="begin" class="power locked" type="button">
+      <span class="power-ring"></span>
+      <span class="power-ring power-ring-2"></span>
+      <span class="power-label">Begin</span>
+    </button>
+
+    <label class="cut" for="cutToggle">
+      <input type="checkbox" id="cutToggle" class="cut-input" />
+      <span class="cut-box" aria-hidden="true">
+        <span class="cut-mark"></span>
+        <span class="cut-sprockets"><i></i><i></i><i></i><i></i></span>
+      </span>
+      <span class="cut-copy">
+        <span class="cut-title">Director's cut</span>
+        <span class="cut-sub">Play the build story first. About two minutes.</span>
+      </span>
+    </label>
+
+    <p class="curtain-foot">Vision prototype. Story and interface concept for review.</p>
+  </div>
+</section>
+
+<!-- Director's cut intro. Opt in only, never part of the default run. -->
+<section id="intro" class="intro" aria-hidden="true">
+  <div class="intro-bar intro-bar-top" aria-hidden="true"></div>
+  <div class="intro-bar intro-bar-bottom" aria-hidden="true"></div>
+
+  <div class="intro-stage" id="introStage">
+    <div class="intro-banners" id="introBanners"></div>
+    <div class="intro-field" id="introField"></div>
+    <div class="intro-slate" id="introSlate"></div>
+  </div>
+
+  <div class="intro-cap">
+    <div class="intro-cap-block" id="introCap"></div>
+  </div>
+
+  <div class="intro-hud">
+    <span class="intro-act" id="introAct"></span>
+    <span class="intro-state" id="introState" aria-hidden="true"><i></i><i></i></span>
+    <span class="intro-track"><span class="intro-fill" id="introFill"></span></span>
+    <span class="intro-end">
+      <p class="intro-prompt" id="introPrompt"></p>
+      <button id="introSkip" class="intro-skip" type="button">Skip intro</button>
+    </span>
+  </div>
+</section>
+
+<!-- Console shell -->
+<div id="shell" class="shell" aria-hidden="true">
+
+  <header class="hdr">
+    <div class="hdr-left">
+      <span class="dot"></span>
+      <strong class="hdr-title">Azure Local Learning Console</strong>
+      <span class="chip chip-env" id="envChip">AZL-CLUSTER-01</span>
+    </div>
+    <div class="hdr-right">
+      <span class="hdr-stat"><em id="statNodes">4</em> nodes</span>
+      <span class="hdr-sep"></span>
+      <span class="hdr-stat"><em id="statLinks">0</em> links</span>
+      <span class="hdr-sep"></span>
+      <span class="hdr-stat"><em id="statPods">0</em> pods</span>
+      <span class="hdr-sep"></span>
+      <span class="hdr-stat"><em id="statStage">00</em> / 08</span>
+      <span class="chip chip-mode" id="modeChip">Storyboard</span>
+    </div>
+  </header>
+
+  <aside class="rail">
+    <p class="rail-cap">Progression</p>
+    <ol id="rail" class="rail-list"></ol>
+    <div class="rail-foot">
+      <p class="rail-cap">Legend</p>
+      <p class="legend"><span class="fid fid-proven">Proven</span> recorded from a real run</p>
+      <p class="legend"><span class="fid fid-story">Storyboard</span> concept for review</p>
+    </div>
+  </aside>
+
+  <main class="work">
+    <div class="sweep" id="sweep" aria-hidden="true"></div>
+
+    <div class="work-head">
+      <div class="work-headline">
+        <p class="work-eyebrow"><span id="stageIndex">00</span> <span id="stageFid"></span></p>
+        <h2 class="work-title" id="stageTitle">Cold start</h2>
+      </div>
+      <div class="work-exec" id="stageExec"></div>
+    </div>
+
+    <section class="growth">
+      <div class="growth-top">
+        <span class="growth-label" id="growthLabel">standby</span>
+        <span class="growth-time" id="growthTime"></span>
+      </div>
+      <div class="growth-track">
+        <div class="growth-fill" id="growthFill"></div>
+      </div>
+      <div class="growth-ticks" id="growthTicks"></div>
+    </section>
+
+    <div class="work-body">
+      <div class="work-main">
+        <section class="frame-wrap">
+          <p class="panel-cap">The product, assembling itself</p>
+          <div class="frame" id="frame">
+            <div class="frame-bar">
+              <span class="frame-led"></span>
+              <span class="frame-url">azure-local-console.internal</span>
+              <span class="frame-count" id="frameCount">0 / 7 modules</span>
+              <span class="frame-ver" id="frameVer">v0.0</span>
+            </div>
+            <div class="frame-body" id="frameBody"></div>
+            <div class="frame-scan" id="frameScan" aria-hidden="true"></div>
+          </div>
+        </section>
+
+        <section class="canvas-wrap">
+          <p class="panel-cap">How it is wired</p>
+          <div class="canvas" id="canvas">
+            <svg class="wires" id="wires" aria-hidden="true"></svg>
+            <div class="layers" id="layers"></div>
+          </div>
+        </section>
+      </div>
+
+      <aside class="uses-wrap">
+        <p class="panel-cap">Where this gets used</p>
+        <div class="uses" id="uses"></div>
+        <p class="panel-cap">Capabilities online</p>
+        <div class="mods" id="mods">
+          <p class="mods-empty" id="modsEmpty">Nothing has taken root yet.</p>
+        </div>
+      </aside>
+    </div>
+  </main>
+
+  <aside class="stream-wrap">
+    <p class="panel-cap panel-cap-dark">Evidence stream</p>
+    <div class="stream" id="stream"></div>
+    <div class="detail" id="detail"></div>
+  </aside>
+
+  <footer class="desk">
+    <div class="prompt">
+      <span class="prompt-caret">&gt;</span>
+      <span class="prompt-text" id="promptText"></span>
+      <span class="prompt-cursor"></span>
+    </div>
+    <div class="desk-ctl">
+      <button id="btnBack" class="btn" type="button" title="Previous stage">Back</button>
+      <button id="btnPlay" class="btn btn-primary" type="button" title="Play or pause">Pause</button>
+      <button id="btnNext" class="btn btn-next" type="button" title="Next stage">Next</button>
+      <span class="desk-sep"></span>
+      <button id="btnSpeed" class="btn btn-ghost" type="button" title="Playback speed">1.0x</button>
+      <button id="btnReset" class="btn btn-ghost" type="button" title="Restart from cold start">Reset</button>
+    </div>
+  </footer>
+
+</div>
+
+<script src="scenario.js"></script>
+<script src="intro.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

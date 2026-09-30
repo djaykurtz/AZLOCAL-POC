@@ -1,0 +1,11 @@
+# Local working notes for the capstone.
+#
+# The capstone is a product under active creative work, not a settled reference. Drafts, scratch
+# material, and exploration stay local until they are worth publishing. The environment
+# documentation under docs/ has a different job and a different bar.
+
+notes/
+scratch/
+drafts/
+*.draft.md
+*.scratch.md

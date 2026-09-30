@@ -1,0 +1,214 @@
+========================================================================
+  AZURE LOCAL POC // TERRAFORM PRELIMINARY TEST PLAN
+========================================================================
+  Status: PLAN ONLY. Do not run terraform apply. Do not introduce remote
+  state or Azure-provider-backed resources until Terraform is explicitly
+  promoted beyond a POC tooling target.
+
+  Purpose: use Terraform to test deployment assumptions and module hygiene
+  while Azure Local hardware is blocked. The current Terraform tests are not
+  intended to create Azure resources. They validate input shape, node-count
+  assumptions, formatting, initialization, validation, and plan-only workflow.
+
+========================================================================
+  BASE ASSUMPTIONS
+========================================================================
+  Cluster shape:
+    - Default: 4 active nodes, AZL-NODE-01..04.
+    - Optional scale path: 6 nodes, AZL-NODE-01..06.
+
+  Existing Terraform artifact:
+    - tests/terraform/poc-smoke/main.tf
+
+  Existing helper scripts:
+    - scripts/Invoke-LocalValidation.ps1
+    - scripts/Invoke-TerraformPlanOnly.ps1
+
+  Current design boundary:
+    - Terraform is part of the POC test surface.
+    - Bicep remains the primary Azure guardrail/IaC path already present in
+      infra/ unless a specific Terraform use case is promoted later.
+    - The starter Terraform module is provider-free and contains no resource
+      blocks. That is intentional: it can run anywhere Terraform is installed
+      without Azure login, provider downloads, state backends, or hardware.
+
+========================================================================
+  HOW PRELIMINARY TERRAFORM TESTS WORK
+========================================================================
+  Terraform tests can be useful before systems exist in three layers:
+
+  Layer 1 - Static repo validation, no Terraform CLI required:
+    - Invoke-LocalValidation checks that the starter module still has:
+        - node_count variable
+        - default node_count = 4
+        - validation allowing only 4 or 6
+        - node_names generated from node_count
+        - no resource blocks
+    - This prevents the test module from drifting away from the POC shape.
+
+  Layer 2 - Terraform CLI mechanics, still no Azure:
+    - terraform fmt -check
+    - terraform init -backend=false
+    - terraform validate
+    - terraform plan -refresh=false -lock=false
+    - These prove the module is valid Terraform and that the local toolchain
+      works, without touching Azure or remote state.
+
+  Layer 3 - Optional Azure-provider plan-only tests, later:
+    - If Terraform is promoted for Azure supporting resources, add a separate
+      provider-backed module and run plan only.
+    - Do not apply.
+    - Do not use remote state until there is a reason.
+    - Use an explicit script with plan-only semantics and fail if an apply
+      path is attempted.
+
+========================================================================
+  SUCCESS CRITERIA
+========================================================================
+  Phase A - static/no-tooling checks:
+    [ ] Invoke-LocalValidation passes TerraformStatic checks.
+    [ ] Starter module remains no-deploy: no Terraform resource blocks.
+    [ ] Default node count is 4.
+    [ ] Optional node count is 6.
+
+  Phase B - local Terraform CLI checks:
+    [ ] terraform is installed and available in PATH.
+    [ ] terraform fmt -check passes.
+    [ ] terraform init -backend=false passes.
+    [ ] terraform validate passes.
+    [ ] Invoke-TerraformPlanOnly.ps1 passes for NodeCount 4.
+    [ ] Invoke-TerraformPlanOnly.ps1 passes for NodeCount 6.
+
+  Phase C - optional Azure-provider plan-only checks:
+    [ ] Azure provider version is pinned.
+    [ ] Provider download succeeds through firewall/proxy.
+    [ ] terraform plan succeeds with -out under out/.
+    [ ] Plan output is reviewed and contains only intended resource changes.
+    [ ] No apply command is run.
+
+========================================================================
+  PHASE A // STATIC CHECKS (RUN NOW)
+========================================================================
+  Command:
+    .\scripts\Invoke-LocalValidation.ps1
+
+  Expected current behavior:
+    - TerraformStatic passes even if terraform is not installed.
+    - Terraform CLI-specific check may SKIP with "terraform not found in
+      PATH". That is a workstation readiness gap, not an Azure Local gap.
+
+  Likely blockers caught now:
+    - Someone changes default node count away from 4.
+    - Someone removes the 6-node option.
+    - Someone adds resource blocks to the provider-free starter module.
+    - Terraform variable validation no longer matches the POC shape.
+
+  Workarounds:
+    - Keep provider-free assumption module separate from future provider-
+      backed modules.
+    - Treat static test failures as design drift, not infrastructure failure.
+
+========================================================================
+  PHASE B // LOCAL TERRAFORM CLI CHECKS (RUN WHEN TERRAFORM IS INSTALLED)
+========================================================================
+  Commands:
+    terraform -chdir=tests/terraform/poc-smoke fmt -check
+    terraform -chdir=tests/terraform/poc-smoke init -backend=false
+    terraform -chdir=tests/terraform/poc-smoke validate
+    .\scripts\Invoke-TerraformPlanOnly.ps1
+    .\scripts\Invoke-TerraformPlanOnly.ps1 -NodeCount 6
+
+  What Invoke-TerraformPlanOnly does:
+    - Sets TF_DATA_DIR to a temp folder so provider/cache files do not land
+      in the repo.
+    - Runs fmt/init/validate/plan.
+    - Uses -backend=false, -refresh=false, -input=false, -lock=false.
+    - Writes the temporary plan under out/ and deletes it by default.
+    - Never runs terraform apply.
+
+  Likely blockers:
+    - Terraform CLI not installed.
+    - PATH points to old Terraform version.
+    - Corporate security blocks downloading providers if a provider is added.
+    - Formatting drift fails fmt -check.
+
+  Workarounds:
+    - Install Terraform before execution day.
+    - Keep starter module provider-free.
+    - Pin provider versions only in provider-backed modules.
+    - Use plugin cache outside source control if provider downloads become a
+      real issue.
+
+========================================================================
+  PHASE C // OPTIONAL AZURE PROVIDER PLAN-ONLY MODULE (LATER)
+========================================================================
+  Only create this if Terraform becomes useful for a real POC target.
+
+  Candidate safe uses:
+    - Model supporting Azure resources that Bicep already covers, then compare
+      plans as a tooling exercise.
+    - Create a plan-only module for tags, naming, or resource group inputs.
+    - Validate that Terraform could express the same observability guardrails
+      without making it the deployment source of truth.
+
+  Do not use Terraform yet for:
+    - Azure Local cluster creation.
+    - Arc Resource Bridge creation.
+    - AKS-on-Azure-Local creation.
+    - Role assignment changes.
+    - Remote state backend creation.
+
+  Minimum safeguards if added:
+    - required_providers block with pinned azurerm version.
+    - backend disabled for POC plan-only runs.
+    - no secrets in tfvars.
+    - plan output saved under out/.
+    - explicit approval before any future apply path is even scripted.
+
+========================================================================
+  BLOCKER MATRIX
+========================================================================
+  terraform missing:
+    - Impact: CLI checks skip/fail, but static shape still validates.
+    - Workaround: install Terraform or run CLI checks from a prepared DevBox.
+
+  provider download blocked:
+    - Impact: provider-backed plan cannot init.
+    - Workaround: stay provider-free, configure approved plugin cache, or use
+      Bicep for Azure resources.
+
+  remote state confusion:
+    - Impact: accidental state coupling or backend prompts.
+    - Workaround: use -backend=false for all POC plan-only checks.
+
+  accidental resource blocks in starter module:
+    - Impact: no-deploy assumption is broken.
+    - Workaround: Invoke-LocalValidation TerraformStatic fails and blocks it.
+
+  apply temptation:
+    - Impact: Terraform mutates Azure outside the intended POC path.
+    - Workaround: keep scripts plan-only; do not add apply automation without
+      an explicit decision record.
+
+========================================================================
+  GO / NO-GO FOR ACTUAL TERRAFORM EXECUTION
+========================================================================
+  Go for Phase A:
+    - Anytime. It is static/no-deploy.
+
+  Go for Phase B:
+    - Terraform CLI installed.
+    - User expects only local plan/validate output.
+    - No apply path is being requested.
+
+  Go for Phase C:
+    - Terraform has a specific POC purpose beyond tooling validation.
+    - Provider and backend behavior are understood.
+    - Output is plan-only.
+
+  No-go:
+    - Any request would run terraform apply.
+    - Any module needs secrets in tfvars.
+    - Any state backend would be created ad hoc.
+    - Terraform would duplicate Bicep without a useful comparison or learning
+      objective.

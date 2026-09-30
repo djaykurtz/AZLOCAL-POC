@@ -1,0 +1,287 @@
+========================================================================
+  AZURE LOCAL POC // DOCKER OPERATIONS DEPLOYMENT TEST PLAN
+========================================================================
+  Status: PLAN ONLY. Do not execute until storage validation, Azure Local
+  cluster deployment, and the chosen container runtime path are ready.
+
+  Purpose: prove that Azure Local can support normal Docker-style workload
+  operations in a POC sense: build, tag, run, inspect, log, exec, stop,
+  restart, publish, push/pull, and later schedule a matching workload on
+  AKS on Azure Local. This is not a production HA, DR, or performance test.
+
+========================================================================
+  BASE ASSUMPTIONS
+========================================================================
+  Cluster shape:
+    - Default: AZL-NODE-01..04 only.
+    - Optional scale path: AZL-NODE-01..06 after nodes 05/06 match the
+      storage, BIOS, network, Arc, and validation baseline.
+
+  Existing no-deploy artifacts:
+    - tests/docker/smoke/Dockerfile
+    - tests/kubernetes/smoke/*.yaml
+    - scripts/Invoke-LocalValidation.ps1
+    - scripts/Invoke-DockerSmokeBuild.ps1
+    - scripts/Invoke-AksSmokeValidation.ps1
+
+  Important scope boundary:
+    - Docker engine directly on Azure Local host nodes is NOT assumed to be
+      the final architecture. Windows Server / Azure Local host nodes may
+      not support or want a general Docker daemon installed on the hosts.
+    - Normal Docker operations should first be tested on a dedicated test VM
+      running on Azure Local, then the container workload should be tested on
+      AKS on Azure Local. This avoids mutating cluster hosts for a POC.
+
+========================================================================
+  SUCCESS CRITERIA
+========================================================================
+  Phase A - Local preflight, before hardware:
+    [ ] Dockerfile passes static validation.
+    [ ] Optional local docker build succeeds on DevBox if Docker is present.
+    [ ] Kubernetes manifests pass static validation and kubectl client dry-run
+        when kubectl is installed.
+
+  Phase B - Docker VM on Azure Local:
+    [ ] A disposable Linux container-test VM runs on the Azure Local cluster.
+    [ ] Docker engine or container-compatible runtime installs on the VM.
+    [ ] VM can pull from mcr.microsoft.com.
+    [ ] VM can run, inspect, log, exec into, stop, restart, and remove a test
+        container.
+    [ ] VM can build the smoke Dockerfile.
+    [ ] VM can publish a port and the workload responds from the management
+        network.
+    [ ] Optional registry push/pull works only after registry target is chosen.
+
+  Phase C - AKS on Azure Local:
+    [ ] AKS cluster reaches Ready state.
+    [ ] Smoke manifests deploy successfully.
+    [ ] Pods pull image from allowed registry.
+    [ ] Service exposure works through LoadBalancer, or ClusterIP fallback is
+        documented during first bring-up.
+    [ ] Scaling and pod recreation work and evidence is saved to out/.
+
+========================================================================
+  PHASE A // NO-DEPLOY PREFLIGHT (RUN NOW)
+========================================================================
+  Commands:
+    .\scripts\Invoke-LocalValidation.ps1
+    .\scripts\Invoke-LocalValidation.ps1 -BuildDocker
+    .\scripts\Invoke-DockerSmokeBuild.ps1
+    .\scripts\Test-KubernetesManifests.ps1
+
+  Expected current behavior on this DevBox:
+    - Invoke-LocalValidation passes all local checks.
+    - Terraform/kubectl may SKIP if the CLI is not installed.
+    - Docker build commands may fail/skip if Docker is not installed or not
+      running. That is a workstation readiness gap, not an Azure Local gap.
+
+  Blockers this phase can expose:
+    - Bad Dockerfile syntax or missing FROM.
+    - MCR pull blocked on DevBox.
+    - kubectl missing.
+    - Manifest object shape broken.
+    - PowerShell or Bicep regressions elsewhere in the repo.
+
+  Workarounds:
+    - Keep the smoke Dockerfile simple and MCR-based.
+    - Treat Docker Desktop absence as a SKIP unless DevBox local build is a
+      formal acceptance item.
+    - Use static Kubernetes checks before a real cluster exists.
+
+========================================================================
+  PHASE B // DOCKER VM ON AZURE LOCAL (FUTURE EXECUTION)
+========================================================================
+  Rationale:
+    Normal Docker commands should be tested on a disposable VM, not directly
+    on Azure Local host nodes. This proves the platform can run container dev
+    workflows without contaminating the cluster hosts.
+
+  VM plan:
+    - OS: small supported Linux image available through Azure Local / Arc VM
+      flow, preferably Ubuntu LTS or Azure Linux if available.
+    - Size: smallest practical VM with 2 vCPU / 4 GB RAM.
+    - Network: same management/tenant reachable path used for POC VMs.
+    - Disk: small OS disk only; no data persistence required.
+    - Access: SSH from DevBox over approved network path.
+
+  Test sequence:
+    1. Provision the disposable VM through the Azure Local VM path.
+       Evidence:
+         - VM resource name, node placement if visible, private IP, OS.
+
+    2. Validate baseline network from the VM.
+       Commands to design:
+         - nslookup mcr.microsoft.com
+         - curl -I https://mcr.microsoft.com/v2/
+         - curl -I https://management.azure.com/
+       Expected:
+         - DNS resolves.
+         - HTTPS responds; 401/403/404 are acceptable reachability proof.
+
+    3. Install Docker engine or compatible runtime in the VM.
+       Expected:
+         - docker version works.
+         - docker info works.
+       Likely blocker:
+         - Package repo blocked by firewall/proxy.
+       Workaround:
+         - Pre-stage packages or use an OS image with container runtime
+           already available.
+
+    4. Pull a Microsoft-hosted image.
+       Command:
+         docker pull mcr.microsoft.com/azuredocs/aci-helloworld:latest
+       Expected:
+         - Pull succeeds.
+       Likely blockers:
+         - MCR blocked from VM subnet.
+         - TLS interception/cert trust issue.
+       Workaround:
+         - Verify with Test-Reachability.ps1 from nodes/VM network.
+         - Use a different Microsoft-hosted image already reachable.
+
+    5. Run normal lifecycle commands.
+       Commands:
+         docker run -d --name azloc-smoke -p 8080:80 mcr.microsoft.com/azuredocs/aci-helloworld:latest
+         docker ps
+         docker inspect azloc-smoke
+         docker logs azloc-smoke
+         docker exec azloc-smoke /bin/sh -c "echo ok"
+         curl http://localhost:8080/
+         docker stop azloc-smoke
+         docker start azloc-smoke
+         docker rm -f azloc-smoke
+       Expected:
+         - Container lifecycle works.
+         - Published port responds locally.
+
+    6. Test network reachability to the published port from DevBox.
+       Command shape:
+         Invoke-WebRequest http://<vm-ip>:8080/ -UseBasicParsing
+       Expected:
+         - HTTP 200 or application response.
+       Likely blockers:
+         - VM firewall blocks 8080.
+         - NSG / Azure Local SDN path blocks 8080.
+         - Docker bind is localhost-only by accident.
+       Workarounds:
+         - Open VM OS firewall only for the test.
+         - Retest with localhost first, then VM IP, then DevBox.
+
+    7. Build the POC Dockerfile on the VM.
+       Command shape:
+         docker build -t azloc-poc-smoke:vm tests/docker/smoke
+         docker run --rm azloc-poc-smoke:vm
+       Expected:
+         - Build succeeds.
+         - Run emits smoke message.
+       Likely blockers:
+         - Build context not copied to VM.
+         - Base image pull blocked.
+
+    8. Optional registry push/pull, only after registry target is chosen.
+       Candidate targets:
+         - ACR if the POC adds a registry resource.
+         - Docker Hub only if explicitly allowed.
+       Do NOT require this for initial POC success.
+
+  Phase B evidence to capture:
+    - docker version
+    - docker info summary
+    - docker images
+    - docker ps before/after lifecycle
+    - curl results from VM and DevBox
+    - firewall/proxy errors if any
+
+========================================================================
+  PHASE C // AKS ON AZURE LOCAL CONTAINER WORKLOAD (FUTURE EXECUTION)
+========================================================================
+  Rationale:
+    Docker VM proves normal Docker operations. AKS proves the Azure Local
+    container orchestration path.
+
+  Test sequence:
+    1. Confirm AKS context.
+       Commands:
+         kubectl config current-context
+         kubectl get nodes -o wide
+
+    2. Run cluster-internal workload smoke first if service VIPs are not
+       ready.
+       Command:
+         .\scripts\Invoke-AksSmokeValidation.ps1 -ServiceType ClusterIP
+
+    3. Run service exposure test when VIP path is ready.
+       Command:
+         .\scripts\Invoke-AksSmokeValidation.ps1 -ServiceType LoadBalancer
+
+    4. Scale scheduling proof.
+       Default 4-node command:
+         .\scripts\Invoke-AksSmokeValidation.ps1 -Replicas 4
+       Optional 6-node command:
+         .\scripts\Invoke-AksSmokeValidation.ps1 -Replicas 6
+
+  Likely blockers:
+    - kubectl context points at the wrong cluster.
+    - Image pull blocked from AKS nodes.
+    - CoreDNS cannot resolve public registry names.
+    - LoadBalancer external IP stays pending due missing VIP pool.
+    - Service IP conflicts with reserved Kubernetes ranges.
+    - Pods do not spread evenly because scheduling constraints are not set.
+
+  Workarounds:
+    - Always capture kubectl config current-context before applying.
+    - Start with ClusterIP if LoadBalancer is not ready.
+    - Use MCR-hosted image already in firewall plan.
+    - Add topology spread only if pod placement matters for the POC.
+    - Treat uneven placement as informational unless the POC explicitly needs
+      node-spread proof.
+
+========================================================================
+  BLOCKER MATRIX
+========================================================================
+  Missing Docker on DevBox:
+    - Impact: local Docker build cannot run.
+    - Workaround: skip local build; run Docker test later inside VM.
+
+  Missing Terraform/kubectl on DevBox:
+    - Impact: CLI-specific local tests skip.
+    - Workaround: static tests still run; install tools before execution day.
+
+  MCR blocked:
+    - Impact: Docker pull/build and AKS image pull fail.
+    - Workaround: confirm firewall allowlist, use already-approved registry,
+      or pre-stage image in approved registry.
+
+  Docker Hub blocked:
+    - Impact: third-party images fail.
+    - Workaround: do not depend on Docker Hub for POC success.
+
+  VM published port unreachable:
+    - Impact: normal Docker port publishing not proven from DevBox.
+    - Workaround: test localhost in VM, then OS firewall, then SDN path.
+
+  LoadBalancer pending:
+    - Impact: AKS external service exposure not proven.
+    - Workaround: ClusterIP smoke first; fix VIP pool/service controller;
+      rerun LoadBalancer test later.
+
+  Host-node Docker temptation:
+    - Impact: risk of unsupported mutation on Azure Local hosts.
+    - Workaround: keep normal Docker tests inside disposable VM; keep AKS
+      tests inside AKS.
+
+========================================================================
+  GO / NO-GO FOR ACTUAL EXECUTION
+========================================================================
+  Go when:
+    - Storage validation passes on AZL-NODE-01..04.
+    - Cluster deployment is complete or a disposable VM path exists.
+    - Firewall allows MCR and Azure Local/AKS control plane endpoints.
+    - DevBox or test VM has the required CLI for the phase being run.
+
+  No-go when:
+    - Test would require installing Docker directly on Azure Local host nodes.
+    - Test requires opening broad firewall access without approval.
+    - Test requires production HA/DR interpretation of results.
+    - Test would push images to an unapproved public registry.

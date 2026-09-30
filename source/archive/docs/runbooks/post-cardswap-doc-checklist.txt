@@ -1,0 +1,76 @@
+POST CARD-SWAP DOCUMENTATION CHECKLIST (2026-07-24)
+====================================================
+
+Non-urgent bookkeeping to catch up after the node 02 Mellanox card swap. None
+of these block the wizard; they exist so our written record matches reality.
+
+Do these WHEN convenient, not before the retry of Start Validation.
+
+Facts to encode
+---------------
+- Node 02 swap: both Mellanox cards on node 02 were REPLACED with cards
+  harvested from node 05 (not just the one bad SUBSYS_000615B3 card).
+  Node 05 now has zero Mellanox cards; node 05 is benched (NVMe fail).
+- Node 02 new storage MACs:
+    Port4 (slot 4, PCI bus 160) = 00-00-5E-00-53-04   Up 100 Gbps
+    Port3 (slot 5, PCI bus 159) = 00-00-5E-00-53-03   (currently Disconnected
+      pending cable + rename from "SLOT 5 Port 1" -> "Port3")
+- Node 02 stale MAC (do not use anywhere): 00-00-5E-00-53-02 (the removed
+  SUBSYS_000615B3 card). This MAC also appears as a PnP ghost on node 02
+  and can be cleaned with pnputil /remove-device (optional).
+- Node 05 stale MACs (do not use anywhere): 00-00-5E-00-53-04 and
+  00-00-5E-00-53-03 - they physically moved to node 02.
+
+Files to update
+---------------
+[ ] out/network-diagram.html
+    - node02 block: replace 00-00-5E-00-53-02 and 00-00-5E-00-53-05 with the
+      two new MACs above.
+    - node02 rows in the bottom table: same MAC swap.
+    - regenerate out/network-diagram.png via out/shot.js if HTML changes.
+
+[ ] /memories/repo/azure-local-poc.md
+    - Line about node02 storage MACs in the fabric-test section:
+      "00-00-5E-00-53-01 node01, 00-00-5E-00-53-02 node02" -> update the
+      node02 MAC to the new Port3 MAC 00-00-5E-00-53-03.
+    - Add a milestone bullet under the 2026-07-24 PM entry: card swap
+      completed, node 02 both cards SUBSYS_008015B3, harvested from node 05,
+      Port3 needs cable + rename before retry.
+
+[ ] docs/runbooks/deployment-wizard-answers.txt
+    - CARD SWAP RUNBOOK section: change "one card swap from 05" wording to
+      note that BOTH node 02 Mellanox cards were replaced from node 05.
+    - Add the actual new MACs to the "Post-swap verification" section.
+
+[ ] docs/security/... and any other doc that referenced node 02 storage MAC
+    00-00-5E-00-53-02 - refresh to the new MACs (grep for that string).
+
+[ ] out/_node-adapters.txt (if it holds per-node storage MACs) - refresh.
+
+Non-issues confirmed (no doc action needed)
+-------------------------------------------
+- Switch MAC-address tables: no static bindings on storage ports; switches
+  will re-learn on first frame. Old MAC 00-00-5E-00-53-02 ages out on its own
+  (Arista default 300s). Nothing to ask the network team.
+- Storage IPs: not DHCP (Network ATC assigns 10.40.1.x/711 + 10.40.2.x/712
+  at deploy). No DHCP lease bound to old MACs to clean up.
+- Management NIC MAC unchanged (Broadcom 1G was not touched); mgmt IP
+  10.10.1.188 still bound to same physical port. DNS and Arc identity
+  unaffected.
+- Arc machine identity is by machine name + GUID, not MAC. Node 02 stays
+  Connected with no re-onboarding required.
+- BitLocker: not enabled pre-deploy on Azure Local nodes; even if it were,
+  default Server profile measures PCR 7 + 11 only (no PCIe device measurement)
+  so a non-boot NIC swap does not invalidate the TPM seal.
+
+Functional actions (NOT in this checklist - they gate wizard retry)
+-------------------------------------------------------------------
+The following are prerequisites for the Start Validation retry, tracked
+separately from documentation:
+  1. Cable node 02's new slot 5 card to the correct SW1 storage port.
+  2. Rename "SLOT 5 Port 1" to "Port3" on node 02 (currently blocked by a
+     hidden PnP ghost of the old card holding the Port3 name; clear with
+     pnputil /remove-device on the SUBSYS_000615B3 instance, then rename).
+  3. Delete /edgeDevices/default on the node 02 Arc machine so the wizard
+     re-reads the new hardware.
+  4. Re-click Start Validation in the portal.

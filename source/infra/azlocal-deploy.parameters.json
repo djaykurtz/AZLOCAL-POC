@@ -1,0 +1,121 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "_notes": "Azure Local POC deploy params for AZL-NODE 4-node cluster. Used AGAINST Microsoft's create-cluster quickstart template (do not maintain the template here). Run instructions + open TODOs in azlocal-deploy.README.txt. Passwords are intentionally null - supplied at deploy time from Key Vault, never stored here.",
+  "parameters": {
+    "deploymentMode":        { "value": "Validate" },
+
+    "clusterName":           { "value": "AZL-CLUSTER-01" },
+    "location":              { "value": "southcentralus" },
+    "tenantId":              { "value": "00000000-0000-0000-0000-000000000002" },
+    "hciResourceProviderObjectID": { "value": "00000000-0000-0000-0000-000000000003" },
+
+    "arcNodeResourceIds": {
+      "value": [
+        "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-azlocal-poc-001/providers/Microsoft.HybridCompute/machines/AZL-NODE-01",
+        "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-azlocal-poc-001/providers/Microsoft.HybridCompute/machines/AZL-NODE-02",
+        "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-azlocal-poc-001/providers/Microsoft.HybridCompute/machines/AZL-NODE-04",
+        "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-azlocal-poc-001/providers/Microsoft.HybridCompute/machines/AZL-NODE-06"
+      ]
+    },
+
+    "keyVaultName":                { "value": "azl-cluster-01-kv" },
+    "softDeleteRetentionDays":     { "value": 30 },
+    "diagnosticStorageAccountName":{ "value": "azlclusterdiag" },
+    "logsRetentionInDays":         { "value": 30 },
+    "storageAccountType":          { "value": "Standard_LRS" },
+
+    "domainFqdn":                  { "value": "corp.example.com" },
+    "adouPath":                    { "value": "OU=AzureLocal,OU=Lab-Systems,OU=EntraSync,OU=Lab,DC=corp,DC=example,DC=com" },
+    "namingPrefix":                { "value": "AZLPOC" },
+
+    "localAdminUserName":          { "value": "Administrator" },
+    "localAdminPassword":          { "value": null },
+    "AzureStackLCMAdminUsername":  { "value": "AZLCL-DEPLOY-ADM" },
+    "AzureStackLCMAdminPassword":  { "value": null },
+
+    "securityLevel":          { "value": "Recommended" },
+    "driftControlEnforced":   { "value": true },
+    "credentialGuardEnforced":{ "value": true },
+    "smbSigningEnforced":     { "value": true },
+    "smbClusterEncryption":   { "value": false },
+    "bitlockerBootVolume":    { "value": true },
+    "bitlockerDataVolumes":   { "value": true },
+    "wdacEnforced":           { "value": true },
+
+    "streamingDataClient":    { "value": true },
+    "euLocation":             { "value": false },
+    "episodicDataUpload":     { "value": true },
+
+    "configurationMode":      { "value": "Express" },
+
+    "subnetMask":             { "value": "255.255.252.0" },
+    "defaultGateway":         { "value": "10.10.1.1" },
+    "startingIPAddress":      { "value": "10.10.1.200" },
+    "endingIPAddress":        { "value": "10.10.1.207" },
+    "dnsServers":             { "value": [ "10.20.50.50", "10.20.10.50" ] },
+    "useDhcp":                { "value": false },
+
+    "physicalNodesSettings": {
+      "value": [
+        { "name": "AZL-NODE-01", "ipv4Address": "10.10.1.187" },
+        { "name": "AZL-NODE-02", "ipv4Address": "10.10.1.188" },
+        { "name": "AZL-NODE-04", "ipv4Address": "10.10.1.190" },
+        { "name": "AZL-NODE-06", "ipv4Address": "10.10.1.192" }
+      ]
+    },
+
+    "networkingType":    { "value": "switchedMultiServerDeployment" },
+    "networkingPattern": { "value": "hyperConverged" },
+
+    "intentList": {
+      "value": [
+        {
+          "name": "ManagementCompute",
+          "trafficType": [ "Management", "Compute" ],
+          "adapter": [ "Management" ],
+          "_TODO_adapter": "mgmt NIC name is INCONSISTENT across nodes (01/02='CORP', 04='Port2', 06='Port1'). Rename all four mgmt NICs to 'Management' (Rename-NetAdapter) so this single name is valid cluster-wide, OR change this to the common name you standardize on.",
+          "overrideVirtualSwitchConfiguration": false,
+          "virtualSwitchConfigurationOverrides": { "enableIov": "", "loadBalancingAlgorithm": "" },
+          "overrideQosPolicy": false,
+          "qosPolicyOverrides": { "priorityValue8021Action_Cluster": "", "priorityValue8021Action_SMB": "", "bandwidthPercentage_SMB": "" },
+          "overrideAdapterProperty": false,
+          "adapterPropertyOverrides": { "jumboPacket": "", "networkDirect": "", "networkDirectTechnology": "" }
+        },
+        {
+          "name": "Storage",
+          "trafficType": [ "Storage" ],
+          "adapter": [ "Port3", "Port4" ],
+          "overrideVirtualSwitchConfiguration": false,
+          "virtualSwitchConfigurationOverrides": { "enableIov": "", "loadBalancingAlgorithm": "" },
+          "overrideQosPolicy": true,
+          "qosPolicyOverrides": { "priorityValue8021Action_Cluster": "7", "priorityValue8021Action_SMB": "3", "bandwidthPercentage_SMB": "50" },
+          "overrideAdapterProperty": true,
+          "adapterPropertyOverrides": { "jumboPacket": "9014", "networkDirect": "Enabled", "networkDirectTechnology": "RoCEv2" }
+        }
+      ]
+    },
+
+    "storageNetworkList": {
+      "value": [
+        { "name": "StorageNetwork1", "networkAdapterName": "Port3", "vlanId": "711" },
+        { "name": "StorageNetwork2", "networkAdapterName": "Port4", "vlanId": "712" }
+      ]
+    },
+    "storageConnectivitySwitchless": { "value": false },
+    "enableStorageAutoIp":           { "value": true },
+
+    "witnessType":                     { "value": "" },
+    "clusterWitnessStorageAccountName":{ "value": "" },
+
+    "customLocation": { "value": "azl-node-location" },
+
+    "sbeVersion":            { "value": "" },
+    "sbeFamily":             { "value": "" },
+    "sbePublisher":          { "value": "" },
+    "sbeManifestSource":     { "value": "" },
+    "sbeManifestCreationDate":{ "value": "" },
+    "partnerProperties":     { "value": [] },
+    "partnerCredentiallist": { "value": [] }
+  }
+}

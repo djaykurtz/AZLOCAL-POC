@@ -1,0 +1,2115 @@
+/*
+ * Mockup v2 visual system.
+ *
+ * Colour rule: hue encodes the KIND of connection, never the node and never status.
+ * Status lives in form, which is dash, weight, and motion. Failure is the one hue override.
+ */
+
+:root {
+  --shell: #16161b;
+  --panel: #1b1b21;
+  --ink: #ece8e1;
+  --ink-soft: #a9a29a;
+  /* Was #7d766f, which measured about 4.0:1 and is the shade that kept reading as too dark.
+     6.6:1 still sits a clear step below --ink-soft, so the three tier ladder survives. */
+  --ink-dim: #949089;
+  --line: rgba(255, 255, 255, 0.11);
+  --red: #fb2c36;
+
+  /* The five connection kinds, in reveal order. */
+  --k-net: #35e0e8;
+  --k-storage: #a78bfa;
+  --k-control: #edb200;
+  --k-orch: #00c758;
+  --k-work: #fe6e00;
+
+  --mono: ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace;
+  --sans: ui-sans-serif, system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --grow: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --unfurl: cubic-bezier(0.34, 1.28, 0.44, 1);
+
+  /* The stage scales as a whole, so this stays constant. Node width is pinned by the widest row,
+     which is five boxes across, so height gets filled with spacing rather than with size. */
+  --u: 1rem;
+}
+
+* { box-sizing: border-box; }
+
+/* One composition on a fixed canvas, scaled to fit, letterboxed like a video. The aspect ratio
+   is the thing being preserved, so nothing reflows and every fixed size below stays correct. */
+html, body { height: 100%; overflow: hidden; }
+
+.fit {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  background: #000;
+}
+
+/* Anchored at the centre and pulled back by half its own size. A grid would leave an oversized
+   item at the start and then scaling from its middle pushes it off to one side. */
+.stage {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 1536px;
+  height: 864px;
+  /* Panels park just outside the canvas when closed. That used to be off-screen; now it is the
+     letterbox bar, so the canvas has to clip its own edges. */
+  overflow: hidden;
+  transform-origin: 0 0;
+}
+
+/* ---------- scrollbars ---------- */
+
+/* A default scrollbar is a browser artifact sitting inside a designed interface, and it reads as
+   one. These match the rest: a hairline gutter rule like every other divider, a thin square thumb
+   with no arrows, and accent colour only while the pane is actually being used. The transparent
+   border with content-box clipping is what makes a 3px thumb keep a 9px hit area. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
+}
+
+::-webkit-scrollbar { width: 9px; height: 9px; }
+
+::-webkit-scrollbar-track {
+  background: transparent;
+  box-shadow: inset 1px 0 0 rgba(255, 255, 255, 0.06);
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  background-clip: content-box;
+  border: 3px solid transparent;
+  border-radius: 0;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(254, 110, 0, 0.6);
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-corner { background: transparent; }
+
+/* Inside the cutaway the thumb picks up whichever provenance colour the frame is wearing. */
+.cut ::-webkit-scrollbar-thumb:hover {
+  background: rgba(var(--cutc), 0.65);
+  background-clip: content-box;
+}
+
+
+html, body {
+  height: 100%;
+  margin: 0;
+  background:
+    radial-gradient(1200px 700px at 22% 8%, #1e1e26 0%, transparent 60%),
+    radial-gradient(900px 600px at 88% 96%, #1a1e24 0%, transparent 62%),
+    var(--shell);
+  color: var(--ink);
+  font-family: var(--sans);
+  overflow: hidden;
+}
+
+/* ---------- motes ---------- */
+
+/* Drifting light in the colour of whatever is currently online. Ambient, never informational. */
+.motes { position: fixed; inset: 0; pointer-events: none; z-index: 0; overflow: hidden; }
+
+.mote {
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 12px currentColor, 0 0 24px currentColor;
+  opacity: 0;
+  animation: mote-drift var(--dur) linear forwards;
+}
+
+@keyframes mote-drift {
+  0%   { transform: translate(0, 0) scale(0.6); opacity: 0; }
+  14%  { opacity: var(--peak); }
+  70%  { opacity: calc(var(--peak) * 0.6); }
+  100% { transform: translate(var(--dx), -639px) scale(1.15); opacity: 0; }
+}
+
+.console { position: relative; z-index: 1; }
+
+.console {
+  height: 100%;
+  display: grid;
+  grid-template-columns: 168px minmax(0, 1fr) 370px;
+  grid-template-rows: 56px minmax(0, 1fr);
+  grid-template-areas:
+    "hdr hdr hdr"
+    "rail work log";
+}
+
+/* The overlay never reflows what is underneath. The console must always be exactly what the
+   audience will see, so the commentary floats over it and can be pushed aside instead. */
+
+/* ---------- header ---------- */
+
+.hdr {
+  grid-area: hdr;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 18px;
+  border-bottom: 1px solid var(--line);
+  /* Stays above the cutaway. The controls are the one thing that must never be cut away. */
+  position: relative;
+  z-index: 65;
+}
+
+.hdr-left { display: flex; align-items: center; gap: 14.4px; }
+.hdr-right { display: flex; align-items: center; gap: 12px; }
+
+/* Five strokes, one per pathway, in the order the deck earns them. It is the legend compressed to
+   a mark, so the colour in the corner is the same colour language used everywhere else. */
+.hdr-dot {
+  display: flex;
+  align-items: flex-end;
+  gap: 2.4px;
+  height: 15.6px;
+}
+
+.hdr-dot i {
+  display: block;
+  width: 2.4px;
+  border-radius: 0;
+  background: currentColor;
+}
+
+.hdr-dot i:nth-child(1) { height: 7.2px;  color: var(--k-net); }
+.hdr-dot i:nth-child(2) { height: 10.8px; color: var(--k-storage); }
+.hdr-dot i:nth-child(3) { height: 15.6px; color: var(--k-control); }
+.hdr-dot i:nth-child(4) { height: 12px;   color: var(--k-orch); }
+.hdr-dot i:nth-child(5) { height: 8.4px;  color: var(--k-work); }
+
+.hdr-title { font-size: 16.8px; font-weight: 600; letter-spacing: -0.01em; }
+
+.chip {
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  border: 1px solid var(--line);
+  padding: 3.6px 9.6px;
+  border-radius: 2px;
+}
+
+.stat {
+  font-family: var(--mono);
+  font-size: 15px;
+  color: var(--ink-soft);
+  padding: 0 4px;
+}
+
+.stat em { font-style: normal; color: var(--ink); font-weight: 600; }
+
+.hdr-sep { width: 1px; height: 16px; background: var(--line); }
+
+/* Presentation controls live in the header. There is no bottom bar. */
+.ctl { display: flex; align-items: center; gap: 6px; margin-left: 4px; }
+
+/* Movement navigation and the cutaway are different jobs, so they are held apart. */
+.ctl-gap { width: 100px; }
+.ctl-label {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+
+.ctl-btn {
+  min-width: 32px;
+  height: 28px;
+  padding: 0 7px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--ink-soft);
+  font-family: var(--mono);
+  font-size: 13px;
+  border-radius: 2px;
+  cursor: pointer;
+  transition: color 160ms ease, border-color 160ms ease, background 160ms ease;
+}
+
+.ctl-btn:hover { color: var(--ink); border-color: rgba(255, 255, 255, 0.32); background: rgba(255, 255, 255, 0.07); }
+.ctl-next { border-color: rgba(53, 224, 232, 0.4); color: #bfeff2; background: rgba(53, 224, 232, 0.09); }
+.ctl-next:hover { background: rgba(53, 224, 232, 0.2); color: #eafcfd; }
+
+/* ---------- rail ---------- */
+
+.rail {
+  grid-area: rail;
+  border-right: 1px solid var(--line);
+  padding: 14px 9px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.cap {
+  font-family: var(--mono);
+  font-size: 13.5px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  margin: 0 0 13px;
+}
+
+.rail .cap { text-align: center; }
+
+/* No flex grow. Letting the list stretch pinned the legend to the floor and opened a gap under
+   the last movement. The rail now ends where its content ends. */
+.rail-list { list-style: none; margin: 0; padding: 0; }
+
+.rail-item {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  padding: 6px 5px;
+  border-radius: 2px;
+  cursor: pointer;
+  color: var(--ink-dim);
+  transition: color 200ms ease, background 200ms ease;
+}
+
+.rail-item:hover { background: rgba(255, 255, 255, 0.03); color: var(--ink-soft); }
+.rail-item.done { color: var(--ink-soft); }
+.rail-item.on { color: var(--ink); background: rgba(255, 255, 255, 0.05); }
+
+.rail-num { font-family: var(--mono); font-size: 10px; }
+.rail-name { font-size: 13.5px; }
+
+/* After the deck rather than in it, so no number and a rule to separate it from the movements. */
+.rail-aside {
+  margin-top: 12px;
+  padding-top: 13px;
+  border-top: 1px solid var(--line);
+}
+
+.rail-aside .rail-num { display: none; }
+
+.rail-foot { border-top: 1px solid var(--line); margin-top: 12px; padding-top: 16px; }
+
+.legend { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+
+.legend li {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  font-size: 15.5px;
+  color: var(--ink-dim);
+  opacity: 0.3;
+  transition: opacity 400ms ease, color 400ms ease;
+}
+
+.legend li.on { opacity: 1; color: var(--ink-soft); }
+
+.legend i {
+  width: 22px;
+  height: 3px;
+  border-radius: 1px;
+  background: currentColor;
+  flex: none;
+}
+
+/* ---------- work ---------- */
+
+/* One gutter value everywhere. The space around the view window matches the space between the
+   fabric strip and the view window, so the middle column has a single rhythm rather than three. */
+
+.work {
+  grid-area: work;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  overflow: hidden;
+}
+
+.work-head { flex: none; }
+
+.eyebrow {
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  margin: 0 0 6px;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.fid { padding: 2px 6px; border: 1px solid currentColor; border-radius: 2px; }
+.fid-proven { color: var(--k-orch); }
+.fid-story { color: var(--ink-dim); }
+
+.work-title { margin: 0; font-size: calc(var(--u) * 1.63); font-weight: 600; letter-spacing: -0.02em; }
+.work-sub { margin: 7px 0 0; font-size: calc(var(--u) * 0.88); color: var(--ink-soft); max-width: 78ch; }
+
+/* Real elapsed time is content, not chrome, so it runs on in the same sentence at the same size.
+   Colour carries the demotion instead, which is one fewer type size in the same square inch. */
+/* Was --ink-dim, which measured 4.69:1 on black. That clears AA by 0.19 at 14px, which is not a
+   margin worth having over a compressed stream. Same shade as the sentence it trails. */
+.work-elapsed { color: var(--ink-soft); }
+
+/* ---------- fabric strip ---------- */
+
+/* The substrate demotes to a margin once the cluster exists. Fabric at the edge, workspace in the middle. */
+.fabric[hidden] { display: none; }
+
+.fabric {
+  flex: none;
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: #1b1b21;
+  animation: fabric-in 600ms var(--grow);
+}
+
+@keyframes fabric-in {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: none; }
+}
+
+.fabric-cap {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  flex: none;
+}
+
+.fabric-cells { display: flex; gap: 8px; flex: 1; }
+
+.cell {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 10px;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--ink-soft);
+  transition: border-color 300ms ease, color 300ms ease, opacity 300ms ease;
+}
+
+/* Activity light indicates WORK, not health, so placement is legible at a glance. */
+.cell-led {
+  width: 5px; height: 5px; border-radius: 50%;
+  background: #4a4a52;
+  flex: none;
+}
+
+.cell.busy .cell-led {
+  background: var(--k-work);
+  box-shadow: 0 0 8px rgba(254, 110, 0, 0.9);
+  animation: cell-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes cell-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+.cell.down { border-color: rgba(251, 44, 54, 0.6); color: #ffb4b8; }
+.cell.down .cell-led { background: var(--red); box-shadow: 0 0 8px rgba(251, 44, 54, 0.9); }
+
+.cell.repairing { border-color: rgba(237, 178, 0, 0.55); color: #f4d68a; }
+.cell.repairing .cell-led { background: var(--k-control); animation: cell-pulse 0.9s ease-in-out infinite; }
+
+/* ---------- canvas ---------- */
+
+.field {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.wires { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 0; }
+
+.canvas-wrap { flex: 1; min-height: 0; position: relative; z-index: 1; }
+
+.canvas {
+  position: relative;
+  height: 100%;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.014) 1px, transparent 1px) 0 0 / 100% 26px,
+    linear-gradient(90deg, rgba(255, 255, 255, 0.014) 1px, transparent 1px) 0 0 / 26px 100%;
+}
+
+.layers {
+  position: relative;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  /* Safe centring falls back to the top when the stack is taller than the canvas. Plain centring
+     overflows in both directions, which puts nodes on top of the title. */
+  justify-content: safe center;
+  gap: calc(var(--u) * 5.4);
+  padding: calc(var(--u) * 1.6) calc(var(--u) * 1.5);
+  z-index: 1;
+}
+
+/* The tag floats in the gap above its row. Naming a layer should not cost the layer any width. */
+
+.layer { position: relative; }
+.layer[hidden] { display: none; }
+
+.layer-tag {
+  position: absolute;
+  top: -17px;
+  left: 2px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+
+.layer-row { display: flex; gap: 16px; flex-wrap: wrap; flex: 1; justify-content: space-around; }
+
+/* The opening shape: two switches over two rows of three machines. The row is capped at exactly
+   three boxes wide, since a percentage basis clamps against max-width and lets a fourth slip in. */
+
+.layer[data-layer="switches"] .layer-row,
+.layer[data-layer="machines"] .layer-row {
+  justify-content: center;
+  gap: calc(var(--u) * 0.8) calc(var(--u) * 1.6);
+  max-width: calc(var(--u) * 49);
+  margin: 0 auto;
+}
+
+.layer[data-layer="switches"] .node,
+.layer[data-layer="machines"] .node {
+  flex: 0 0 calc(var(--u) * 15);
+  max-width: calc(var(--u) * 15);
+  text-align: center;
+}
+
+.node {
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: #1e1e25;
+  padding: calc(var(--u) * 0.95) calc(var(--u) * 0.94);
+  min-width: calc(var(--u) * 7.75);
+  max-width: calc(var(--u) * 11);
+  opacity: 0;
+  transform: translateY(10px);
+  transition: opacity 420ms ease, transform 520ms var(--unfurl), border-color 300ms ease;
+}
+
+.node.on { opacity: 1; transform: none; }
+
+/* The class sets display, so it wins over the browser default for hidden. Say it explicitly. */
+.layers[hidden] { display: none; }
+
+/* ---------- memory stick (movement 02 only) ---------- */
+
+/* Sits in the empty band under the diagram rather than in the flow, so the layer rows that other
+   movements share are never touched. Proportioned to a DDR4 DIMM, near enough 4.3 to 1. */
+.memstick {
+  --pcb: #3d4a3c;
+  --pcb-edge: #52634f;
+  position: absolute;
+  left: 50%;
+  bottom: 14px;
+  transform: translateX(-50%);
+  width: 900px;
+  display: grid;
+  grid-template-columns: 236px 1fr;
+  align-items: center;
+  gap: 0 26px;
+  z-index: 2;
+}
+
+.memstick[hidden] { display: none; }
+
+.mem-cap {
+  margin: 0;
+  text-align: left;
+  font-family: var(--mono);
+  font-size: 15.5px;
+  line-height: 1.5;
+  letter-spacing: 0.01em;
+  color: var(--ink-soft);
+}
+
+.mem-dimm { position: relative; }
+
+/* Opaque board. Every DIMM is green, so a grey green reads as one without shouting. */
+.mem-pcb {
+  position: relative;
+  height: 118px;
+  box-sizing: border-box;
+  padding: 26px 15px 0;
+  background: var(--pcb);
+  border: 1px solid var(--pcb-edge);
+  border-radius: 4px 4px 0 0;
+}
+
+/* The two side notches every stick has, cut by painting the background back over the edge. */
+.mem-pcb::before,
+.mem-pcb::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  width: 9px;
+  height: 26px;
+  background: #000;
+  transform: translateY(-50%);
+}
+
+.mem-pcb::before { left: -1px; border-radius: 0 5px 5px 0; }
+.mem-pcb::after  { right: -1px; border-radius: 5px 0 0 5px; }
+
+/* One blurred copy of the same gradient, under the row. A glow per chip had to pick a single
+   colour for a chip showing three bands, and its blur crossed into the next band along. */
+.mem-glow {
+  position: absolute;
+  left: 15px;
+  right: 15px;
+  top: 26px;
+  height: 62px;
+  background-image: var(--g);
+  filter: blur(11px);
+  opacity: 0.5;
+  transition: opacity 800ms ease;
+  pointer-events: none;
+}
+
+/* Seeding the start state has to happen with no transition running, or the delay on these two
+   swallows the reset and the stick returns already full. */
+.memstick.arming .mem-mask,
+.memstick.arming .mem-glow { transition: none; }
+
+/* Colour runs across one unbroken strip. Eight chips with real gaps between them cut every band
+   that did not happen to end on a chip boundary, which left leading edges stranded as slivers. */
+.mem-chips {
+  position: relative;
+  display: flex;
+  height: 62px;
+  background-image: var(--g);
+  border-radius: 2px;
+}
+
+/* Seams are painted over the colour instead of carved out of it, so the eight chips still read
+   without any band being broken into pieces. */
+.mem-chips::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(90deg,
+    transparent 0 calc(12.5% - 3px), #10160f calc(12.5% - 3px) 12.5%);
+  border-radius: 2px;
+  pointer-events: none;
+}
+
+.mem-chip {
+  position: relative;
+  flex: 1 1 0;
+}
+
+/* Legs sit on the board above and below each chip, not across the gaps. */
+.mem-chip::before,
+.mem-chip::after {
+  content: "";
+  position: absolute;
+  left: 3px;
+  right: 3px;
+  height: 5px;
+  background: repeating-linear-gradient(90deg,
+    rgba(0, 0, 0, 0.55) 0 4px, transparent 4px 10px);
+}
+
+.mem-chip::before { top: -7px; }
+.mem-chip::after  { bottom: -7px; }
+
+/* Covers the unfilled part of its own chip and retreats to the right. */
+.mem-mask {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 100%;
+  background: #262d26;
+  transition: width 900ms cubic-bezier(0.33, 0.02, 0.28, 1);
+}
+
+/* Contact edge, with the off centre key every DDR module has. */
+.mem-pins {
+  position: relative;
+  height: 13px;
+  border-radius: 0 0 2px 2px;
+  background:
+    repeating-linear-gradient(90deg, #c39442 0 3px, var(--pcb) 3px 6px);
+  border: 1px solid var(--pcb-edge);
+  border-top: 0;
+  box-sizing: border-box;
+}
+
+.mem-pins::after {
+  content: "";
+  position: absolute;
+  left: 44%;
+  top: -1px;
+  bottom: -1px;
+  width: 7px;
+  background: #000;
+}
+
+/* Two groups of three columns. The list items dissolve into the grid so every label shares a
+   column and every figure shares one, which is what makes the numbers line up. */
+.mem-key {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(2, auto 1fr auto);
+  align-items: center;
+  gap: 6px 12px;
+  font-size: 13.5px;
+  color: var(--ink-soft);
+}
+
+.mem-key li { display: contents; }
+.mem-key span { white-space: nowrap; }
+
+.mem-key i {
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+  flex: none;
+  box-shadow: 0 0 9px var(--c);
+}
+
+.mem-key b { font-family: var(--mono); font-weight: 400; color: var(--ink); text-align: right; white-space: nowrap; }
+
+.mem-key .mem-open i { background: #262d26; border: 1px solid var(--pcb-edge); }
+
+
+/* The closing frame. Two columns, one heading each, and a hairline between them doing the work
+   that the layer diagram does everywhere else. Columns sit at the top and the note sits at the
+   foot, so the padding reads the same on all four sides instead of pooling in one place. */
+.split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-content: space-between;
+  min-height: 100%;
+  gap: 0 34px;
+  padding: 30px;
+}
+
+.split-col {
+  padding-right: 30px;
+  opacity: 0;
+  transform: translateY(8px);
+  animation: split-in 620ms var(--unfurl) forwards;
+  animation-delay: calc(var(--i) * 160ms + 100ms);
+}
+
+.split-col + .split-col { padding-right: 0; padding-left: 30px; border-left: 1px solid var(--line); }
+
+@keyframes split-in { to { opacity: 1; transform: none; } }
+
+.split-stat {
+  margin: 0 0 3px;
+  min-height: 58px;
+  font-size: 24px;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+
+/* Under the number, close enough in size that the pair reads as one heading. */
+.split-cap {
+  margin: 0 0 16px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--line);
+  font-size: 16px;
+  color: var(--ink-dim);
+}
+
+.split-list { margin: 0; padding: 0; list-style: none; }
+
+.split-list li {
+  position: relative;
+  margin-bottom: 11px;
+  padding-left: 16px;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--ink-soft);
+}
+
+.split-list li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 11px;
+  width: 7px;
+  height: 1px;
+  background: var(--ink-dim);
+}
+
+.split-note {
+  grid-column: 1 / -1;
+  margin: 14px 0 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  font-size: 14px;
+  line-height: 1.6;
+  color: #c8bfae;
+}
+
+/* ---------- engineering credits ---------- */
+
+.creds {
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+  padding: 6px 36px;
+  max-width: 660px;
+  margin: 0 auto;
+}
+
+.creds-block {
+  opacity: 0;
+  transform: translateY(8px);
+  animation: creds-in 640ms var(--unfurl) forwards;
+  animation-delay: calc(var(--i) * 130ms + 120ms);
+}
+
+@keyframes creds-in { to { opacity: 1; transform: none; } }
+
+.creds-cap {
+  margin: 0 0 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.creds-name { margin: 0 0 5px; font-size: 16px; color: var(--ink); }
+.creds-name.lead { font-size: 22px; }
+
+/* Literally three characters of gap, set in the same face the address is rendered in. */
+.creds-email {
+  margin-left: 3ch;
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+
+.creds-email:empty { display: none; }
+
+.creds-line { margin: 0 0 6px; font-size: 13.5px; line-height: 1.6; color: var(--ink-soft); }
+
+/* Nodes are neutral. They take the hue of whatever connection is live through them. */
+.node.lit { border-color: currentColor; box-shadow: 0 0 0 1px currentColor inset; }
+
+/* Hover is a held state, not a motion, so what has to read over a low framerate link is the
+   difference between two still frames rather than the travel between them. Hence a full white
+   border, a visibly lighter fill, a ring, and a 3px lift: all four change at once. */
+.node.on { cursor: help; position: relative; }
+
+.node.on:hover {
+  transform: translateY(-3px);
+  border-color: rgba(255, 255, 255, 0.72);
+  background: #2e2e39;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.09), 0 6px 16px rgba(0, 0, 0, 0.5);
+}
+
+/* The corner bracket grows rather than fading, so it survives being sampled mid transition. */
+.node.on::after {
+  content: "";
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 0;
+  height: 0;
+  border-top: 1px solid currentColor;
+  border-right: 1px solid currentColor;
+  opacity: 0;
+  transition: width 200ms var(--grow), height 200ms var(--grow), opacity 160ms ease;
+}
+
+.node.on:hover::after, .node.asked::after { width: 11px; height: 11px; opacity: 1; }
+
+.node.asked {
+  border-color: currentColor;
+  background: #2e2e39;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.09);
+}
+
+/* Fabric cells are the same machines after they shrink into the strip, so they answer too.
+   currentColor keeps a down or repairing cell its own colour while it is hovered. */
+.cell { cursor: help; transition: transform 200ms var(--grow), border-color 200ms ease, background 200ms ease, box-shadow 200ms ease; }
+
+.cell:hover, .cell.asked {
+  transform: translateY(-3px);
+  border-color: currentColor;
+  background: #2e2e39;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.09);
+}
+
+/* The callout. Anchored beside what you clicked, joined by a stem, with nothing dimmed behind it,
+   because the diagram is the thing being asked about. */
+.callout {
+  position: fixed;
+  z-index: 72;
+  width: 330px;
+  padding: 14px 16px 16px;
+  background: #101015;
+  border: 1px solid var(--line);
+  border-left: 2px solid var(--ink-soft);
+  border-radius: 2px;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6);
+  opacity: 0;
+  transform: translateX(-6px);
+  transition: opacity 200ms ease, transform 260ms var(--grow);
+}
+
+.callout.on { opacity: 1; transform: none; }
+.callout.flip { border-left: 1px solid var(--line); border-right: 2px solid var(--ink-soft); transform: translateX(6px); }
+.callout.flip.on { transform: none; }
+
+.callout-stem {
+  position: absolute;
+  top: 50%;
+  left: -18px;
+  width: 18px;
+  height: 1px;
+  background: var(--line);
+}
+
+.callout.flip .callout-stem { left: auto; right: -18px; }
+
+.callout-head { margin: 0 0 12px; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.callout-title { font-size: 14.5px; color: var(--ink); }
+.callout-meta { font-family: var(--mono); font-size: 10.5px; color: var(--ink-dim); }
+
+.callout-cap {
+  margin: 0 0 4px;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: #7f8b9b;
+}
+
+.callout-t { margin: 0 0 12px; font-size: 12.5px; line-height: 1.55; color: var(--ink-soft); }
+.callout-t:last-child { margin-bottom: 0; }
+.callout-here { color: #c8bfae; }
+
+.node-name { display: block; font-size: calc(var(--u) * 0.94); color: var(--ink); }
+.node-meta { display: block; margin-top: 3px; font-family: var(--mono); font-size: calc(var(--u) * 0.72); color: var(--ink-dim); }
+
+.node.detail .node-detail {
+  display: block;
+  margin-top: 7px;
+  padding-top: 6px;
+  border-top: 1px solid var(--line);
+  font-family: var(--mono);
+  font-size: calc(var(--u) * 0.63);
+  color: var(--ink-soft);
+  line-height: 1.55;
+  white-space: pre-line;
+}
+
+.node-detail { display: none; }
+
+.node.out { opacity: 0.22; filter: grayscale(1); }
+
+/* ---------- wires ---------- */
+
+/* Three tiers. Two would leave every edge bright in the opening, which is no focus at all. */
+.wire { fill: none; stroke-linecap: round; transition: opacity 400ms ease, stroke-width 400ms ease; }
+.wire.rest-other { opacity: 0.18; stroke-width: 1.8; }
+.wire.rest-same  { opacity: 0.46; stroke-width: 2.4; }
+.wire.active     { opacity: 1;    stroke-width: 3.4; filter: drop-shadow(0 0 6px currentColor); }
+.wire.pending    { stroke-dasharray: 4 5; opacity: 0.5; }
+.wire.failed     { stroke: var(--red) !important; opacity: 1; stroke-width: 3.2; }
+
+/* Connections grow from source to target rather than appearing. Carried over from v1. */
+.wire.grow { animation: wire-grow 900ms var(--grow) forwards; }
+
+/* Connections this movement introduced. A slow breathe over the top of the existing wire, so the
+   new part of the picture is findable without anyone having to hunt for it. Opacity and glow
+   only, and slow, which is both calmer to look at and the part that survives a remote session. */
+.wire-new {
+  fill: none;
+  stroke-width: 2.6;
+  stroke-linecap: round;
+  pointer-events: none;
+  animation: wire-new 4600ms ease-in-out infinite;
+}
+
+@keyframes wire-new {
+  0%, 100% { opacity: 0.10; filter: none; }
+  50%      { opacity: 0.50; filter: drop-shadow(0 0 6px currentColor); }
+}
+
+@keyframes wire-grow {
+  from { stroke-dashoffset: var(--len); }
+  to   { stroke-dashoffset: 0; }
+}
+
+.pulse {
+  fill: none;
+  stroke-linecap: round;
+  stroke-width: 3.4;
+  opacity: 0;
+  animation: pulse-run 1.9s linear infinite;
+}
+
+@keyframes pulse-run {
+  0%   { stroke-dashoffset: var(--len); opacity: 0; }
+  12%  { opacity: 0.95; }
+  70%  { opacity: 0.5; }
+  100% { stroke-dashoffset: calc(var(--len) * -1); opacity: 0; }
+}
+
+/* ---------- transcript log ---------- */
+
+.log-wrap {
+  grid-area: log;
+  border-left: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 16px 0 0;
+}
+
+.cap-log { padding: 0 16px; display: flex; align-items: baseline; gap: 8px; }
+
+/* ---------- acceptance criteria ---------- */
+
+.ac {
+  list-style: none;
+  margin: 0;
+  padding: 1px 14px 0;
+  flex: 1 1 auto;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.ac-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 3.5px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.045);
+}
+
+.ac-row:last-child { border-bottom: 0; }
+
+.ac-box {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin-top: 1px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 2px;
+  display: grid;
+  place-items: center;
+  transition: border-color 240ms ease, background 240ms ease;
+}
+
+.ac-mark {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1;
+  opacity: 0;
+  transform: scale(0.4);
+  transition: opacity 200ms ease, transform 200ms var(--unfurl);
+}
+
+.ac-txt { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+
+.ac-t {
+  font-size: 14px;
+  line-height: 1.3;
+  color: var(--ink-dim);
+  transition: color 240ms ease;
+}
+
+/* 10.5px is a threshold rather than a taste. Larger and the notes wrap, which movement 10
+   cannot absorb because it carries nine of them. */
+.ac-n {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  line-height: 1.4;
+  color: #7f8b9b;
+}
+
+.ac-n:empty { display: none; }
+
+/* Reached, so the mark is showing and the text has come up out of the dim. */
+.ac-row.part .ac-mark,
+.ac-row.done .ac-mark { opacity: 1; transform: scale(1); }
+.ac-row.part .ac-t,
+.ac-row.done .ac-t { color: var(--ink); }
+.ac-row.part .ac-box,
+.ac-row.done .ac-box { border-color: currentColor; background: rgba(255, 255, 255, 0.04); }
+
+/* Half of a two part criterion. Marked, but not finished making its case. */
+.ac-row.part .ac-mark { opacity: 0.5; }
+
+/* The movement currently on screen owns these. */
+.ac-row.active .ac-t { color: var(--ink); }
+.ac-row.active { background: rgba(255, 255, 255, 0.025); }
+
+.m-done  { color: var(--k-orch); }
+.m-bound { color: var(--k-control); }
+.m-find  { color: var(--k-storage); }
+/* Deferred was grey on near black and could not be read. Blue reads as parked rather than failed. */
+.m-defer { color: #7aa2e3; }
+
+/* The last beat of a movement. In place only, because anything that travels does not survive
+   being watched over a remote session. */
+.ac-row.just .ac-box { animation: ac-land 900ms var(--unfurl); }
+.ac-row.just .ac-mark { animation: ac-mark 900ms var(--unfurl); }
+
+@keyframes ac-land {
+  0%   { transform: scale(1); box-shadow: 0 0 0 0 currentColor; }
+  22%  { transform: scale(1.45); box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.09); }
+  55%  { transform: scale(1.08); }
+  100% { transform: scale(1); box-shadow: 0 0 0 0 transparent; }
+}
+
+@keyframes ac-mark {
+  0%   { transform: scale(0.3); filter: brightness(1); }
+  22%  { transform: scale(1.5); filter: brightness(2.2); }
+  60%  { transform: scale(0.95); }
+  100% { transform: scale(1); filter: brightness(1); }
+}
+
+/* Two by two rather than a wrapping row, which was orphaning the fourth key onto its own line.
+   Kept tight, because every pixel here is a pixel the list on movement 10 does not have. */
+.ac-key {
+  flex: none;
+  margin: 0;
+  padding: 5px 14px 5px;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 3px 16px;
+  font-size: 14px;
+  color: var(--ink-dim);
+}
+
+.ac-key span { white-space: nowrap; }
+
+.ac-key b { font-family: var(--mono); font-weight: 400; margin-right: 4px; }
+
+.cap-hint { text-transform: none; letter-spacing: 0; font-size: 10px; opacity: 0.7; }
+
+.log { flex: 1; overflow-y: auto; padding: 0 12px 16px; }
+
+/* ---------- evidence ---------- */
+
+/* The recorder half of the column. Its own language on purpose: a terminal has never looked like
+   the thing it inspects, and the time gutter is what makes this a record rather than a list. */
+
+.ev {
+  flex: 0 0 46%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 14px;
+  padding-bottom: 0;
+}
+
+.ev[hidden] { display: none; }
+
+.ev.idle .ev-replay { visibility: hidden; }
+
+.ev-empty {
+  margin: 0;
+  padding: 10px 16px 0 16px;
+  font-family: var(--sans);
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--ink-dim);
+  max-width: 46ch;
+}
+
+.ev-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 16px 8px;
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.ev-dot { color: var(--ink-dim); flex: none; }
+.ev-dot::before { content: "ready"; }
+.ev-dot.none::before { content: "none"; opacity: 0.7; }
+.ev-dot.live { color: var(--k-orch); }
+.ev-dot.live::before { content: "rec"; display: inline-block; animation: ev-blink 1.1s steps(2, end) infinite; }
+.ev-dot.bad { color: var(--red); }
+.ev-dot.bad::before { content: "fail"; }
+
+@keyframes ev-blink { 50% { opacity: 0.2; } }
+
+.ev-host {
+  color: var(--ink-soft);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ev-replay {
+  margin-left: auto;
+  flex: none;
+  appearance: none;
+  border: 0;
+  background: none;
+  color: var(--ink-dim);
+  font: inherit;
+  padding: 0 4px;
+  cursor: pointer;
+}
+
+.ev-replay::before { content: "["; opacity: 0.5; margin-right: 4px; }
+.ev-replay::after { content: "]"; opacity: 0.5; margin-left: 4px; }
+.ev-replay:hover { color: var(--ink); }
+
+.ev-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.65;
+  padding-bottom: 8px;
+}
+
+.evrow { display: flex; }
+
+/* Every line hangs off one unbroken time gutter. */
+.evts {
+  flex: none;
+  width: 62px;
+  padding-right: 8px;
+  border-right: 1px solid var(--line);
+  color: #5c6260;
+  font-size: 11px;
+  text-align: right;
+  user-select: none;
+}
+
+.evtxt {
+  padding: 0 14px 0 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--ink-soft);
+}
+
+.evrow.cmd .evtxt { color: var(--ink); }
+.evrow.cmd .evtxt::before { content: "$ "; color: var(--kind, var(--ink-dim)); }
+.evrow.good .evtxt { color: var(--k-orch); }
+.evrow.warn .evtxt { color: var(--k-control); }
+.evrow.bad .evtxt { color: var(--red); }
+.evrow.note .evtxt { color: var(--ink-dim); }
+.evrow.note .evtxt::before { content: "# "; opacity: 0.6; }
+
+.ev-foot {
+  margin: 0;
+  flex: none;
+  padding: 8px 16px 12px;
+  border-top: 1px solid var(--line);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: var(--ink-dim);
+}
+
+/* Groups are collapsed by default, including while running. The resting state is calm. */
+.grp { border-bottom: 1px solid rgba(255, 255, 255, 0.05); }
+
+.grp-head {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 6px;
+  background: none;
+  border: 0;
+  color: inherit;
+  font-family: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.grp-head:hover { background: rgba(255, 255, 255, 0.03); }
+
+.grp-kind { width: 3px; height: 22px; border-radius: 1px; background: currentColor; flex: none; }
+
+.grp-icon { font-family: var(--mono); font-size: 11px; width: 13px; flex: none; text-align: center; }
+.grp.ok .grp-icon { color: var(--k-orch); }
+.grp.run .grp-icon { color: var(--k-control); }
+.grp.fail .grp-icon { color: var(--red); }
+
+.grp-name { flex: 1; color: var(--ink); }
+.grp.pending .grp-name { color: var(--ink-dim); }
+
+.grp-dur { font-family: var(--mono); font-size: 10px; color: var(--ink-dim); flex: none; }
+.grp-caret { font-family: var(--mono); font-size: 9px; color: var(--ink-dim); flex: none; transition: transform 200ms ease; }
+.grp.open .grp-caret { transform: rotate(90deg); }
+
+.grp-body { display: none; padding: 2px 6px 12px 31px; }
+.grp.open .grp-body { display: block; }
+
+.cmd {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: #bfeff2;
+  padding: 5px 8px;
+  background: rgba(53, 224, 232, 0.05);
+  border-left: 2px solid var(--k-net);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.out {
+  margin: 6px 0 0;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  line-height: 1.65;
+  color: var(--ink-soft);
+  white-space: pre-wrap;
+}
+
+/* Determinate bar ONLY where the tool really reports progress. Elapsed timer everywhere else. */
+.meter { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.meter-track { flex: 1; height: 2px; background: rgba(255, 255, 255, 0.09); }
+.meter-fill { display: block; height: 100%; background: var(--k-control); width: 0%; transition: width 300ms linear; }
+.meter-txt { font-family: var(--mono); font-size: 9.5px; color: var(--ink-dim); }
+
+/* ================= Commentary layer ================= */
+
+/* Deliberately owns no layout. It floats above and can be removed without touching anything beneath. */
+.notes-layer { position: fixed; inset: 0; pointer-events: none; z-index: 100; }
+.notes-layer.on { pointer-events: none; }
+
+.notes-toggle {
+  border: 1px solid rgba(254, 110, 0, 0.4);
+  background: rgba(254, 110, 0, 0.07);
+  color: #ffcf9a;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 5px 10px;
+  border-radius: 2px;
+  cursor: pointer;
+  transition: background 180ms ease;
+}
+
+.notes-toggle:hover { background: rgba(254, 110, 0, 0.16); }
+.notes-toggle.on { background: var(--orange, #fe6e00); color: #17130f; border-color: #fe6e00; }
+
+.notes-count {
+  display: inline-block;
+  min-width: 16px;
+  margin-left: 4px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: rgba(254, 110, 0, 0.22);
+  text-align: center;
+}
+
+.notes-toggle.on .notes-count { background: rgba(0, 0, 0, 0.2); }
+
+/* ---------- BUILT, the cutaway ---------- */
+
+/*
+ * A second indicator that BUILT is toggled on. The header button is the control, but it is small
+ * and in the far corner, so you cannot tell the mode is armed without going to look at it. The bar
+ * repeats that state next to the pane the cutaway opens over.
+ *
+ * It used to be drawn as an underline per rail item. Those were absolutely positioned inside a
+ * .rail-item that has no position, so each one resolved against the stage instead of its own row,
+ * came out 1520px wide rather than 152, and the eleven stacked into a line across all three panes.
+ * Same indicator, correct width, and it now stops where the work pane does.
+ */
+.work { position: relative; }
+
+.work-armed {
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: 4px;
+  height: 2px;
+  border-radius: 1px;
+  background: linear-gradient(90deg, rgba(254, 110, 0, 0.75), rgba(254, 110, 0, 0.2));
+  opacity: 0;
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: opacity 260ms ease, transform 320ms var(--grow);
+  pointer-events: none;
+}
+
+.work.armed .work-armed { opacity: 1; transform: scaleX(1); }
+
+/*
+ * This is not an overlay and it deliberately does not behave like one. What shows through is a
+ * different layer: darker than the shell, denser type, no rounded cards. The console above is
+ * designed. The thing underneath is not.
+ *
+ * It used to carry no blur at all, on the argument that blur says frosted glass while sharp
+ * surroundings plus a dark void says hole. That held until you read it. Interface text sitting a
+ * few pixels outside the rim competes with the panel's own text, and at the corners you were
+ * reading both at once. The blur is graded to the same falloff as the scorch: strong enough at the
+ * edge to separate foreground from background, gone by the edge of the stage, so the periphery
+ * still reads as cut rather than covered.
+ */
+
+.built-btn {
+  height: 28px;
+  padding: 0 15px;
+  border: 1px solid rgba(254, 110, 0, 0.34);
+  background: rgba(254, 110, 0, 0.06);
+  color: #f5b783;
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  border-radius: 2px;
+  cursor: pointer;
+  transition: color 160ms ease, border-color 160ms ease, background 160ms ease, box-shadow 220ms ease;
+}
+
+.built-btn:hover { color: #ffd9bb; border-color: rgba(254, 110, 0, 0.7); background: rgba(254, 110, 0, 0.16); }
+
+/* Armed means the next press will stop here before advancing. */
+.built-btn.armed {
+  color: #ffd9bb;
+  border-color: #fe6e00;
+  box-shadow: 0 0 0 1px rgba(254, 110, 0, 0.35), 0 0 14px rgba(254, 110, 0, 0.4);
+}
+
+.built-btn.open { background: #fe6e00; color: #17130f; border-color: #fe6e00; }
+
+.cut {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  background: transparent;
+  /* The interface around the cut is not covered, so it must still be clickable. */
+  pointer-events: none;
+
+  /* The frame colour carries provenance, so the room can tell evidence from intent at a glance.
+     Amber is a real captured run. Blue is a drawn portal blade, whose data may still be real.
+     Purple is a proposal that has not been built at all. */
+  --cutc: 254, 110, 0;
+  --cutink: #fe6e00;
+  --cuttext: #ffd9bb;
+}
+
+.cut[data-kind="portal"] { --cutc: 0, 120, 212; --cutink: #4aa8ff; --cuttext: #cfe6ff; }
+.cut[data-kind="next"]   { --cutc: 150, 92, 235; --cutink: #b98cff; --cuttext: #e3d4ff; }
+
+.cut[hidden] { display: none; }
+
+/* Only the material immediately around the cut darkens, as if scorched back from the edge. */
+.cut-scorch {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(closest-side at 50% 50%,
+    rgba(0, 0, 0, 0.82) 0%,
+    rgba(0, 0, 0, 0.72) 58%,
+    rgba(0, 0, 0, 0.34) 78%,
+    rgba(0, 0, 0, 0) 100%);
+  animation: cut-scorch-in 420ms var(--grow) both;
+}
+
+/* The blur rides on its own layer so the mask governs the blur without also thinning the scorch.
+   Radius is in stage units and the stage is scaled down, so this renders softer than it reads. */
+.cut-scorch::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  backdrop-filter: blur(26px);
+  -webkit-backdrop-filter: blur(26px);
+  -webkit-mask-image: radial-gradient(closest-side at 50% 50%,
+    #000 0%, #000 74%, rgba(0, 0, 0, 0.55) 90%, transparent 100%);
+  mask-image: radial-gradient(closest-side at 50% 50%,
+    #000 0%, #000 74%, rgba(0, 0, 0, 0.55) 90%, transparent 100%);
+}
+
+.cut-hole {
+  position: relative;
+  /* Stage units, not viewport units. The cut sits inside the scaled stage, so vw and vh would be
+     measured against the window and then multiplied by the scale again. 75 percent of 1536 x 864. */
+  width: 1152px;
+  height: 648px;
+  border-radius: 26px;
+  /* Opaque underneath the panel. The rim used to sit a pixel outside it, which left a transparent
+     band all the way round that widened at the corners and showed interface text through the seam. */
+  background: #06070a;
+  pointer-events: auto;
+  animation: cut-open 460ms var(--unfurl) both;
+}
+
+/* The exposed edge. A hot line, then haze bleeding outward into the surviving interface. The line
+   carries the separation: at 1px the blur behind it was doing work nobody could see, because the
+   scorch is near opaque at the edge and hides whatever it softened. */
+.cut-rim {
+  position: absolute;
+  inset: 0;
+  border-radius: 26px;
+  pointer-events: none;
+  box-shadow:
+    0 0 0 3px rgba(var(--cutc), 0.62),
+    0 0 0 4px rgba(0, 0, 0, 0.55),
+    0 0 30px 3px rgba(var(--cutc), 0.30),
+    0 0 90px 18px rgba(var(--cutc), 0.16),
+    0 0 190px 60px rgba(0, 0, 0, 0.78);
+}
+
+.cut-rim::after {
+  content: '';
+  position: absolute;
+  inset: -26px;
+  border-radius: 52px;
+  background: radial-gradient(closest-side, rgba(var(--cutc), 0.15), transparent 72%);
+  filter: blur(22px);
+}
+
+.cut-inner {
+  position: absolute;
+  inset: 0;
+  border-radius: 26px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background:
+    linear-gradient(180deg, rgba(var(--cutc), 0.05), transparent 120px),
+    #06070a;
+  /* Material has thickness, so the content recedes into shadow at the cut edge. */
+  box-shadow:
+    inset 0 0 34px 10px rgba(0, 0, 0, 0.95),
+    inset 0 0 90px 30px rgba(0, 0, 0, 0.55);
+}
+
+.cut-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 26px 12px;
+  border-bottom: 1px solid rgba(var(--cutc), 0.16);
+}
+
+.cut-num {
+  font-family: var(--mono);
+  font-size: 21px;
+  font-weight: 700;
+  color: var(--cutink);
+  letter-spacing: 0.04em;
+}
+
+.cut-titles { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+
+.cut-title {
+  font-family: var(--mono);
+  font-size: 14px;
+  color: var(--ink);
+  letter-spacing: 0.02em;
+}
+
+.cut-sub {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--ink-dim);
+  letter-spacing: 0.06em;
+}
+
+.cut-host {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-soft);
+}
+
+.cut-close {
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: transparent;
+  color: var(--ink-dim);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  padding: 5px 11px;
+  border-radius: 2px;
+  cursor: pointer;
+}
+
+.cut-close:hover { color: var(--ink); border-color: rgba(255, 255, 255, 0.34); }
+
+.cut-body {
+  flex: 1 1 auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
+  gap: 0;
+  min-height: 0;
+}
+
+.cut-pane { display: flex; flex-direction: column; min-height: 0; padding: 14px 22px 20px; }
+.cut-steps { border-left: 1px solid rgba(255, 255, 255, 0.07); }
+
+.cut-cap {
+  margin: 0 0 10px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+
+.cut-cap-hint {
+  margin-left: 8px;
+  letter-spacing: 0.04em;
+  text-transform: none;
+  color: var(--cuttext);
+}
+
+.cut-termbody,
+.cut-stepsbody {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  /* The pop animation scales a row past the container edge. Without this it flashes a
+     horizontal scrollbar mid celebration. */
+  overflow-x: hidden;
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.66;
+}
+
+.cut-row { display: flex; gap: 10px; }
+.cut-t { flex: 0 0 48px; color: #4d4740; text-align: right; }
+
+/* Work done between two captures. Aligned to the output column so it reads as a break in the
+   transcript rather than as a line the machine printed. */
+.cut-gap {
+  margin: 5px 0 5px 58px;
+  color: #6f6a64;
+  font-style: italic;
+  letter-spacing: 0.04em;
+}
+
+.cut-gap:first-of-type { margin-top: 9px; }
+.cut-gap b { color: #7ee2a8; font-style: normal; font-weight: 600; }
+/* Terminal output is column aligned. Reflowing it mid-line reads as a web page, not a terminal. */
+.cut-x { flex: 1 1 auto; color: #b9b2aa; white-space: pre; }
+
+/* A row that rewrites itself in place gets a beat, so the change is noticed. */
+.cut-row.hit { animation: cut-hit 620ms var(--unfurl); transform-origin: left center; }
+
+@keyframes cut-hit {
+  0%   { transform: scale(1); filter: brightness(1); }
+  26%  { transform: scale(1.045); filter: brightness(1.7); }
+  100% { transform: scale(1); filter: brightness(1); }
+}
+
+/* The payoff lines get longer and larger. This is the part worth celebrating. */
+.cut-row.pop { animation: cut-pop 1500ms cubic-bezier(0.16, 1, 0.3, 1); transform-origin: left center; }
+
+@keyframes cut-pop {
+  0%   { transform: scale(1);     filter: brightness(1); }
+  14%  { transform: scale(1.085); filter: brightness(2.4); }
+  34%  { transform: scale(1.03);  filter: brightness(1.5); }
+  58%  { transform: scale(1.045); filter: brightness(1.8); }
+  100% { transform: scale(1);     filter: brightness(1); }
+}
+
+/* While a step is unresolved the row breathes, so waiting looks like working. */
+.cut-row.waiting .cut-x { animation: cut-breathe 2600ms ease-in-out infinite; }
+
+@keyframes cut-breathe {
+  0%, 100% { opacity: 0.5; }
+  50%      { opacity: 0.92; }
+}
+/* Commands are prose, not column aligned output, so they are allowed to wrap. Some of them are
+   90 characters and would otherwise be clipped by the pane. */
+.cut-row.cmd .cut-x { color: var(--cuttext); white-space: pre-wrap; }
+.cut-row.good .cut-x { color: #7ee2a8; }
+.cut-row.bad .cut-x { color: #ff8a90; }
+/* Notes are the human line rather than output, so they sit a size up and read at a distance. */
+.cut-row.note .cut-x {
+  color: #8e867d;
+  font-style: italic;
+  font-size: 14.5px;
+  line-height: 1.5;
+  padding-top: 4px;
+  white-space: pre-wrap;
+}
+
+.cut-step { padding: 8px 0 10px; border-bottom: 1px dashed rgba(255, 255, 255, 0.08); }
+.cut-step:last-child { border-bottom: 0; }
+.cut-step-head { display: flex; align-items: baseline; gap: 8px; }
+.cut-step-name { flex: 1 1 auto; color: var(--ink); font-size: 12.5px; }
+.cut-step-dur { color: var(--ink-dim); font-size: 11px; }
+.cut-step-cmd {
+  margin-top: 6px;
+  padding-left: 10px;
+  border-left: 2px solid var(--cutink);
+  color: var(--cuttext);
+  font-size: 12px;
+  white-space: pre-wrap;
+}
+.cut-step-out { margin: 6px 0 0; color: #8e8880; font-size: 12px; white-space: pre-wrap; }
+.cut-step.fail .cut-step-cmd { border-left-color: var(--red); color: #ff8a90; }
+
+.cut-todo {
+  margin: 0;
+  padding: 18px;
+  border: 1px dashed rgba(var(--cutc), 0.3);
+  border-radius: 4px;
+  color: var(--ink-dim);
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.cut-note { margin: 5px 0 0; color: #8e8880; font-size: 11.5px; line-height: 1.55; }
+
+.cut-src {
+  margin: 12px 0 0;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: #7f8b9b;
+}
+
+/* Portal view. A drawn blade in the blue that says no screenshot was taken. What the blade is
+   filled with varies, so each frame states its own provenance on the last line. */
+.pv { font-family: var(--mono); }
+
+.pv-bar {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+  color: var(--ink-dim);
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.pv-sep { color: #3d434d; }
+.pv-crumb.is-last { color: var(--cutink); }
+
+.pv-head { display: flex; align-items: center; gap: 12px; padding: 14px 0 16px; }
+
+.pv-icon {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border-radius: 3px;
+  border: 1px solid rgba(var(--cutc), 0.5);
+  background: rgba(var(--cutc), 0.12);
+}
+
+.pv-h { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.pv-title { font-size: 15px; color: var(--ink); }
+.pv-type { font-size: 10.5px; color: var(--ink-dim); letter-spacing: 0.05em; }
+
+.pv-table { border-top: 1px solid rgba(255, 255, 255, 0.07); }
+
+.pv-tr {
+  display: grid;
+  gap: 12px;
+  padding: 8px 2px;
+  font-size: 14px;
+  color: #b9b2aa;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.pv-tr span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.pv-th {
+  font-size: 10.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+
+.pv-ok { color: #7ee2a8; }
+
+/* Columns of short values centre, so a count does not crowd the long name beside it. */
+.pv-mid { text-align: center; }
+
+.pv-empty {
+  margin: 0;
+  padding: 34px 0;
+  text-align: center;
+  font-size: 12.5px;
+  color: #5c636e;
+  border: 1px dashed rgba(255, 255, 255, 0.09);
+  border-radius: 4px;
+}
+
+.pv-note {
+  margin: 18px 0 0;
+  font-size: 13.5px;
+  font-style: italic;
+  line-height: 1.6;
+  color: #8e948f;
+}
+
+.pv-sketch {
+  margin: 16px 0 0;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(var(--cutc), 0.85);
+}
+
+/* Where this goes next. Purple, because none of it has been built. A grid rather than a stack,
+   so it reads as a menu of options and fits without the presenter scrolling mid answer. */
+.nx {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  align-content: start;
+}
+
+/* The one concrete proposal leads, and the boundary closes. Both full width. */
+.nx-card.is-lead { grid-column: 1 / -1; }
+.nx-card.is-edge { grid-column: 1 / -1; }
+
+.nx-card {
+  padding: 8px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-left: 2px solid rgba(var(--cutc), 0.45);
+  border-radius: 3px;
+}
+
+.nx-card.is-lead {
+  border-left-color: var(--cutink);
+  background: rgba(var(--cutc), 0.07);
+}
+
+.nx-k {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgba(var(--cutc), 0.9);
+}
+
+.nx-card.is-edge { border-left-color: #6b7280; }
+.nx-card.is-edge .nx-k { color: #7b828d; }
+
+.nx-t {
+  display: block;
+  margin-top: 2px;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  color: var(--ink);
+}
+
+.nx-d { margin: 5px 0 0; font-size: 11.5px; line-height: 1.45; color: #8e8880; }
+
+.nx-need {
+  margin: 6px 0 0;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--cuttext);
+  opacity: 0.75;
+}
+
+@keyframes cut-open {
+  from { opacity: 0; transform: scale(0.965); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+/* Closing collapses toward the button that opened it, so the thing has somewhere to go. */
+.cut.closing .cut-scorch { animation: cut-scorch-out 280ms ease both; }
+
+.cut-hole.closing {
+  animation: cut-close 300ms cubic-bezier(0.5, 0, 0.75, 0) both;
+}
+
+@keyframes cut-close {
+  from { opacity: 1; transform: translate(0, 0) scale(1); }
+  to   { opacity: 0; transform: translate(var(--dx, 0), var(--dy, 0)) scale(0.04); }
+}
+
+@keyframes cut-scorch-out {
+  from { opacity: 1; }
+  to   { opacity: 0; }
+}
+
+@keyframes cut-scorch-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.pin {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1px solid #fe6e00;
+  background: #17130f;
+  color: #ffcf9a;
+  font-family: var(--mono);
+  font-size: 9px;
+  line-height: 16px;
+  text-align: center;
+  cursor: pointer;
+  pointer-events: auto;
+  transform: translate(-50%, -50%) scale(0.6);
+  opacity: 0;
+  transition: transform 300ms var(--unfurl), opacity 240ms ease, background 160ms ease;
+  z-index: 2;
+}
+
+.notes-layer.on .pin { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+.pin:hover, .pin.open { background: #fe6e00; color: #17130f; }
+.pin.q { border-color: #35e0e8; color: #bfeff2; }
+.pin.q:hover, .pin.q.open { background: #35e0e8; color: #06282a; }
+.pin.risk { border-color: var(--red); color: #ffb4b8; }
+.pin.risk:hover, .pin.risk.open { background: var(--red); color: #2b0508; }
+.pin.copy { border-color: #965ceb; color: #e3d4ff; }
+.pin.copy:hover, .pin.copy.open { background: #965ceb; color: #150b25; }
+
+.sticky {
+  position: absolute;
+  width: 264px;
+  padding: 12px 13px;
+  background: #f7f3e6;
+  color: #2b2723;
+  border-radius: 2px;
+  box-shadow: 0 16px 34px rgba(0, 0, 0, 0.6);
+  font-size: 12px;
+  line-height: 1.5;
+  pointer-events: auto;
+  opacity: 0;
+  transform: translateY(6px) scale(0.97);
+  transition: opacity 200ms ease, transform 240ms var(--unfurl);
+  z-index: 3;
+}
+
+.sticky.on { opacity: 1; transform: none; }
+.sticky::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: #fe6e00; }
+.sticky.q::before { background: #1d9aa2; }
+.sticky.risk::before { background: #c81f28; }
+.sticky.copy::before { background: #965ceb; }
+
+.sticky-kind {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: #8a7f6d;
+  margin: 0 0 5px;
+}
+
+.sticky-title { margin: 0 0 6px; font-size: 12.5px; font-weight: 600; }
+.sticky-body { margin: 0; }
+.sticky-ref { margin: 8px 0 0; font-family: var(--mono); font-size: 9.5px; color: #8a7f6d; }
+
+/* ---------- notes index ---------- */
+
+.notes-index {
+  position: fixed;
+  top: 56px;
+  right: 0;
+  bottom: 0;
+  width: 340px;
+  background: rgba(25, 25, 32, 0.96);
+  backdrop-filter: blur(6px);
+  border-left: 1px solid rgba(254, 110, 0, 0.3);
+  z-index: 95;
+  overflow-y: auto;
+  padding: 16px 16px 32px;
+  transform: translateX(100%);
+  transition: transform 320ms var(--grow);
+}
+
+.notes-index.on { transform: none; }
+.notes-index.tucked { transform: translateX(calc(100% - 22px)); }
+
+.ni-tuck {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 22px;
+  border: 0;
+  border-right: 1px solid rgba(254, 110, 0, 0.24);
+  background: rgba(254, 110, 0, 0.08);
+  color: #ffcf9a;
+  font-family: var(--mono);
+  font-size: 10px;
+  cursor: pointer;
+  writing-mode: vertical-rl;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.ni-tuck:hover { background: rgba(254, 110, 0, 0.2); }
+
+.ni-inner { padding-left: 16px; }
+
+.ni-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 4px; }
+.ni-title { margin: 0; font-size: 13px; font-weight: 600; }
+
+.ni-sub { margin: 0 0 16px; font-size: 11.5px; color: var(--ink-dim); line-height: 1.5; }
+
+.ni-group { margin-bottom: 18px; }
+.ni-group h4 {
+  margin: 0 0 8px;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+
+.ni-item {
+  display: flex;
+  gap: 9px;
+  padding: 7px 6px;
+  border-radius: 2px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--ink-soft);
+  line-height: 1.4;
+}
+
+.ni-item:hover { background: rgba(255, 255, 255, 0.04); color: var(--ink); }
+.ni-n { font-family: var(--mono); font-size: 10px; color: #fe6e00; flex: none; }
+.ni-item.q .ni-n { color: var(--k-net); }
+.ni-item.risk .ni-n { color: var(--red); }
+.ni-item.copy .ni-n { color: #b98cff; }
+.ni-item.answered { opacity: 0.55; }
+.ni-item.answered span:last-child { text-decoration: line-through; }
+
+/* ---------- note editing ---------- */
+
+.sticky-answer {
+  width: 100%;
+  margin-top: 9px;
+  min-height: 54px;
+  padding: 7px 8px;
+  border: 1px solid #d8d1bd;
+  border-radius: 2px;
+  background: #fffdf6;
+  color: #2b2723;
+  font-family: var(--sans);
+  font-size: 12px;
+  line-height: 1.45;
+  resize: vertical;
+}
+
+.sticky-answer:focus { outline: 2px solid #fe6e00; outline-offset: -1px; }
+.sticky-answer::placeholder { color: #a89d88; }
+
+.sticky-actions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+
+.sticky-act {
+  border: 1px solid #cdc5b0;
+  background: #efe9d8;
+  color: #4a423a;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 4px 7px;
+  border-radius: 2px;
+  cursor: pointer;
+}
+
+.sticky-act:hover { background: #e3dbc5; }
+.sticky-act.on { background: #2b2723; color: #f7f3e6; border-color: #2b2723; }
+.sticky-act.done { background: #1d7a44; color: #eafff2; border-color: #1d7a44; }
+
+.sticky-state {
+  margin: 8px 0 0;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #8a7f6d;
+}
+
+.pin.answered { border-color: #1d7a44; color: #8fe0b0; background: #0f2418; }
+.pin.answered:hover, .pin.answered.open { background: #1d7a44; color: #eafff2; }
+
+.ni-tools { display: flex; gap: 6px; margin-bottom: 14px; }
+
+.ni-tool {
+  flex: 1;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--ink-soft);
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 6px 4px;
+  border-radius: 2px;
+  cursor: pointer;
+}
+
+.ni-tool:hover { color: var(--ink); border-color: rgba(255, 255, 255, 0.3); }
+.ni-tool.on { background: rgba(254, 110, 0, 0.18); color: #ffcf9a; border-color: rgba(254, 110, 0, 0.45); }
+
+.ni-add { display: none; margin-bottom: 16px; padding: 10px; border: 1px dashed var(--line); border-radius: 2px; }
+.ni-add.on { display: block; }
+
+.ni-add label {
+  display: block;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  margin: 0 0 4px;
+}
+
+.ni-add input, .ni-add textarea, .ni-add select {
+  width: 100%;
+  margin-bottom: 8px;
+  padding: 6px 7px;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  background: #101014;
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 12px;
+}
+
+.ni-add textarea { min-height: 52px; resize: vertical; }

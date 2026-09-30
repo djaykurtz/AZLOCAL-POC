@@ -1,0 +1,95 @@
+STORAGE FABRIC DIAGNOSTIC FINDINGS (host-side, 2026-07-27)
+=========================================================
+Author: platform team (the project engineer). Purpose: hard evidence for the network team
+on the VLAN 711/712 east-west storage-fabric failure, gathered without switch
+access. All tests reversible; nodes returned to baseline after.
+
+CONTEXT
+-------
+Azure Local deploy validator fails at "Azure Local Network Storage Connection":
+0/6 east-west storage checks on all four nodes, both VLANs (711 on SW1, 712 on
+SW2). Network ATC successfully built the SET team and assigned storage IPs
+(10.40.1.x / 10.40.2.x), so host-side networking is configured correctly; the
+failure is that node-to-node traffic within each storage VLAN does not pass.
+
+WHAT WE TESTED (host-side, switch-independent)
+----------------------------------------------
+Two cluster nodes on the same switch/VLAN (node01 + node02, Port3, VLAN 711 on
+SW1). Applied a VLAN 711 tag on the physical Mellanox port, test IPs
+192.168.110.1/.2, and generated ARP/ping traffic while capturing frames with
+pktmon on both ends.
+
+RESULTS (hard data)
+-------------------
+1. node01 IS transmitting frames on Port3.
+   pktmon on node01 (sender) captured real Ethernet Tx packets leaving Port3
+   (42-byte ARP frames, Direction Tx). Host transmit works at the frame level.
+
+2. node02 receives NOTHING from node01.
+   pktmon on node02 (receiver), filtered to node01's source MAC
+   00-00-5E-00-53-01, captured ZERO frames during a 40-packet flood.
+   Get-NetAdapterStatistics on node02 Port3: ReceivedUnicastPackets from the
+   test = 0, ReceivedDiscardedPackets = 0, ReceivedPacketErrors = 0.
+
+3. The zero-discards detail is the key one.
+   If node02's NIC were receiving node01's tagged frames and dropping them on a
+   VLAN receive filter, the hardware discard counter would climb. It stayed at
+   0. So the frames are not arriving at node02's NIC at all - this is not a
+   host-side receive-filter drop. The frames are lost between the two switch
+   ports.
+
+4. Host tagging config is correct on both nodes (Get-NetAdapterAdvancedProperty
+   on Port3):
+     Priority & Vlan Tag  = "Priority & VLAN Enabled" (*PriorityVLANTag = 3)
+     VLAN ID              = 711 (while under test)
+     Jumbo Packet         = 1514  (matches the ATC intent)
+     RDMA (NetworkDirect) = Enabled, OperationalState True
+     VMQ VLAN Filtering   = Enabled
+   Driver: Mellanox mlx5.sys 26.4.27095.0 (OEM, not inbox).
+
+CAVEAT (stated honestly)
+------------------------
+We CANNOT confirm host-side whether the 802.1Q 711 tag is physically on the
+wire. ConnectX-5 inserts/strips the VLAN tag in hardware, below where pktmon
+hooks, so the tag is invisible to host capture (frames show as 42 bytes,
+pre-hardware-tag). The only authoritative on-wire views are a switch SPAN/mirror
+or the switch MAC-address table during a live send. The host config, however, is
+unambiguously set to tag (PriorityVLANTag enabled + VlanID 711).
+
+CONCLUSION
+----------
+- Host emits storage frames; peer node's NIC receives none of them, with zero
+  discards. The loss is in the switch fabric between the two ports on the storage
+  VLAN, not on the hosts.
+- This is consistent with the deploy validator's 0/6 result and with the switch
+  MAC table showing no node MACs.
+- The switch port config the network engineer shared looks correct (trunk, allowed vlan 711,
+  mtu 9214, PFC pri3, portfast/bpduguard, no channel-group, no switchport
+  protected), and the VLANs exist (711-712 named PoC-Storage). So the fault is
+  something not visible in that port config: forwarding behavior between the
+  ports on the VLAN.
+
+DECISIVE NEXT STEP (needs switch side)
+--------------------------------------
+During a live host send (we can hold tagged traffic up for several minutes on
+request via scripts/Invoke-HeldTaggedFabricTest.ps1), on SW1 run:
+    show vlan 711
+    show mac address-table vlan 711
+    show interfaces ethernet 9/1,10/1 counters
+    (and confirm no port isolation / no private-VLAN / no L2-protocol filtering)
+- If the node Mellanox MACs (98-03-9B-*) DO appear on VLAN 711 but east-west
+  still fails, it is a forwarding/isolation behavior on the switch.
+- If they do NOT appear even during a live tagged send, the switch is not
+  accepting/learning the tagged frames on those ports.
+Alternatively, a direct DAC between two nodes' Port3 (bypassing the switch)
+would prove host-to-host tagging in isolation, but that is a separate team's
+physical change and not requested casually.
+
+TOOLS (repo)
+------------
+scripts/Invoke-HeldTaggedFabricTest.ps1  - holds tagged traffic for a set time
+scripts/_pktmon-dualend.ps1              - dual-end capture, counts real packets
+scripts/_rx-traversal-test.ps1           - peer RX-counter delta test
+scripts/_storage-nic-deepdive.txt (out/) - full NIC config + counters both nodes
+scripts/_revert-port3-baseline.ps1       - restores Port3 to clean baseline
+Evidence: out/_storage-nic-deepdive.txt, out/_storage-net-exception.txt

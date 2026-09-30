@@ -1,0 +1,42 @@
+AZURE LOCAL POC - RESOURCE EVIDENCE
+Captured 2026-09-09 with scripts/Show-ClusterEvidence.ps1
+Read-only az CLI queries. Rerun any line to check it.
+
+==============================================================================
+WHERE THIS WAS READ FROM
+==============================================================================
+
+PS> az account show --query "{Subscription:name, Id:id, State:state}" -o table
+
+Subscription             Id                                    State
+-----------------------  ------------------------------------  -------
+contoso-lab-sub  00000000-0000-0000-0000-000000000001  Enabled
+
+==============================================================================
+EVERYTHING AZURE CAN SEE, COUNTED BY TYPE
+==============================================================================
+
+PS> az resource list -g rg-azlocal-poc-001 --query "[].type" -o tsv |
+      Group-Object | Sort-Object Count -Descending | Format-Table Count, Name -AutoSize
+
+
+Count Name
+----- ----
+   20 Microsoft.HybridCompute/machines/extensions
+    8 Microsoft.HybridCompute/machines
+    4 Microsoft.AzureStackHCI/galleryImages
+    4 Microsoft.AzureStackHCI/storageContainers
+    2 Microsoft.AzureStackHCI/logicalNetworks
+    2 Microsoft.AzureStackHCI/marketplaceGalleryImages
+    2 Microsoft.AzureStackHCI/networkInterfaces
+    1 Microsoft.Attestation/attestationProviders
+    1 Microsoft.OperationalInsights/workspaces
+    1 Microsoft.Kubernetes/connectedClusters
+    1 Microsoft.KeyVault/vaults
+    1 Microsoft.Insights/workbooks
+    1 Microsoft.ExtendedLocation/customLocations
+    1 Microsoft.ResourceConnector/appliances
+    1 Microsoft.AzureStackHCI/virtualHardDisks
+    1 microsoft.azurestackhci/clusters
+    1 Microsoft.Insights/actiongroups
+    1 Microsoft.Storage/storageAccounts

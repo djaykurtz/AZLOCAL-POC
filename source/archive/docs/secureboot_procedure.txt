@@ -1,0 +1,78 @@
+SECURE BOOT — QUICK RUNBOOK (Azure Local POC)
+*** REQUIRED, NOT OPTIONAL: full validator (2026-07-14) shows AzStackHci_Hardware_SecureBoot =
+    FAILURE / CRITICAL on 04 + 06 -> blocks deployment. It is a HARD GATE. Cannot be skipped. ***
+*** GOOD NEWS: SecureBoot is the ONLY CRITICAL failure on 04/06. Every other CRITICAL gate is
+    GREEN (Storage, NetAdapter, TPM, VBS, Memory, Volume). Only other fail = Gpu (WARNING, benign).
+    So the entire remaining blocking list for the 4-node POC = enable Secure Boot on 04 + 06. ***
+*** IN-PLACE ENABLE IS UNRELIABLE: 02 worked, 03 + 05 FAILED (0xc0430001). ***
+For POC nodes 04/06, enable Secure Boot at (re)deploy time, NOT on a running install.
+Below steps still apply when enabling at deploy; the RECOVERY section handles failures.
+No data-loss risk either way. One node at a time.
+Re-check gate anytime: .\scripts\Test-SecureBootGate.ps1 -Nodes azl-node-04,azl-node-06
+
+------------------------------------------------------------
+DO THIS (per node, at the KVM)
+------------------------------------------------------------
+1. Reboot -> spam F2 -> System Setup -> System BIOS -> System Security.
+   (Secure Boot AND TPM are BOTH in the System Security menu on this 7960 firmware
+    — scroll within it; Secure Boot is not a separate top-level menu.)
+2. Confirm:  Boot Mode = UEFI,  TPM = On.
+3. If keys look empty: Secure Boot Policy -> Reset to Factory / Standard keys.
+4. Set:  Secure Boot = Enabled,  Policy = Standard (Microsoft),  Mode = Deployed.
+5. F10 = Save & Exit.
+6. Next boot shows "UEFI0074: Secure Boot policy modified" -> press F1 to Continue.
+   (NORMAL. Not an error. Expected after any Secure Boot change.)
+7. Then watch:
+     Boots to Windows        = SUCCESS -> run VERIFY below.
+     Black screen 0xc0430001 = the VBS failure -> run RECOVERY below.
+
+------------------------------------------------------------
+VERIFY (from DevBox over WinRM — do NOT trust ping/ICMP)
+------------------------------------------------------------
+$pw=ConvertTo-SecureString ((Get-Content '.\.creds\azloc-local-admin.cred' -Raw).Trim())
+$n='azl-node-04'                              # <-- set node
+$c=[pscredential]::new("$n\Administrator",$pw)
+$s=New-PSSession -ComputerName "$n.lab.example.com" -Credential $c -Authentication Negotiate
+Invoke-Command $s { "SecureBoot=$(Confirm-SecureBootUEFI)";
+  "VBS="+(Get-CimInstance -Namespace root\Microsoft\Windows\DeviceGuard Win32_DeviceGuard).VirtualizationBasedSecurityStatus }
+Remove-PSSession $s
+# WANT: SecureBoot=True  and  VBS=2 (running). Matches node 01/02.
+
+------------------------------------------------------------
+RECOVERY (only if black screen 0xc0430001)
+------------------------------------------------------------
+KVM -> F2 -> BIOS -> Secure Boot = Disabled -> F10 Save. Boots normally, no data loss.
+Then leave OFF; enable Secure Boot in BIOS *before* the next reimage (the safe path).
+
+------------------------------------------------------------
+DOC SOURCE (where the mandate comes from)
+------------------------------------------------------------
+- OFFICIAL: system-requirements-23h2 > "Machine and storage requirements" table row:
+    "Secure boot - Secure Boot must be present and turned on."  (page updated 06/23/2026)
+    learn.microsoft.com/en-us/azure/azure-local/concepts/system-requirements-23h2#machine-and-storage-requirements
+  Same-tier requirement as TPM 2.0 "present and turned on" and BIOS "Intel VT / AMD-V on".
+- Maps 1:1 to validator AzStackHci_Hardware_SecureBoot = CRITICAL -> genuinely blocks deploy.
+- NUANCE: docs mandate the STATE (present + on), NOT a specific key/policy. The "BIOS setting"
+  section defers specifics to OEM. Our strict Policy=Microsoft(R) Boot / Mode=Deployed is Dell
+  OEM hardening, not a Learn mandate. The validator only needs Confirm-SecureBootUEFI=True.
+- CAVEAT ("BIOS resets" section): if BIOS/Secure Boot/TPM is reset, consult OEM for optimized
+  settings; incorrect settings can cause deployment to fail. (Relevant if we Restore Factory Keys.)
+
+------------------------------------------------------------
+WHY (one-liners)
+------------------------------------------------------------
+- Target state = SecureBoot True + UEFI + TPM on + VBS running (like node 01).
+- UEFI0074 = benign Dell "policy changed" prompt. Press F1. NOT the failure.
+- 0xc0430001 = VBS seal mismatch (OS was sealed with Secure Boot OFF). Undone by
+  disabling Secure Boot.
+- *** IN-PLACE ENABLE IS UNRELIABLE (2026-07-14): 02 booted, but 03 AND 05 both
+  hit 0xc0430001. 2-of-3 FAILED. Do NOT gamble the in-place toggle on POC nodes
+  04/06. Node 02 was the exception, not the rule. ***
+- CORRECT PATH for 04/06: enable Secure Boot in BIOS as part of a (re)deploy so the
+  OS seals VBS with Secure Boot ON from first boot (like node 01). Do NOT flip it on
+  a running, already-sealed install.
+- ICMP is firewall-blocked even at the login screen -> confirm up/down via WinRM only.
+
+STATUS: 01 done (native), 02 done (in-place, lucky). 03 tested in-place -> FAILED,
+recovered via Secure Boot=Off. 04/06: enable Secure Boot at (re)deploy, NOT in place.
+05 deferred.

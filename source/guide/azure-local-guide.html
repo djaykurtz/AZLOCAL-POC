@@ -1,0 +1,1952 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Azure Local: a field guide</title>
+<link rel="stylesheet" href="guide.css" />
+</head>
+<body>
+<div class="wrap">
+
+<header class="cover">
+  <h1>Azure Local: a field guide</h1>
+  <p class="sub">How to plan, build, and operate an Azure Local cluster,
+    while&nbsp;avoiding notable pitfalls.</p>
+  <p class="meta">
+    <b>Audience</b> an engineer who knows Azure and has not used Azure Local<br />
+    <b>Assumes</b> enterprise class hardware, and that you have read the Microsoft requirements<br />
+    <b>What this adds</b> the places where the product leads you one way and the documentation
+      another, and the context that settles it<br />
+    <b>Written from</b> a four machine build run between May and September 2026. Every method
+      stated here is the supported one, cited to Microsoft's documentation<br />
+    <b>Companion</b> an interactive walkthrough of the same platform, linked through this guide
+      as <i>See it run</i><br />
+    <b>Status</b> needs review and testing on a production cluster
+  </p>
+</header>
+
+<nav class="toc">
+  <h2>Contents</h2>
+
+  <p class="toc-lead">Parts 1 to 5 are a single sequence, in the order you do them, from deciding
+    what to buy to running a workload on it. Part 2 is the set of permissions and provider
+    registrations a deployment requires, and they can be put in place alongside the planning in
+    Part 1. Part 6 covers running a cluster that is already built, so it stands on its own and
+    repeats anything it needs. Part 7 is for looking things up. Every entry below links to the
+    section it names.</p>
+
+  <p class="toc-band">Building it</p>
+  <ol>
+    <li><a href="#req">Plan the cluster</a>
+      <ul>
+        <li><a href="#s-the-requirements-are-a-checklist-the-order-is-not">When you satisfy a requirement matters</a></li>
+        <li><a href="#s-symmetry-is-a-purchasing-decision-not-a-validation-check">Symmetry is a purchasing decision</a></li>
+        <li><a href="#s-firmware-can-present-drives-as-raid">Firmware can present compliant drives as RAID</a></li>
+        <li><a href="#s-adapters-are-qualified-by-role-and-the-role-is-binding">Adapters are qualified by role</a></li>
+        <li><a href="#s-the-domain-is-where-corporate-policy-and-the-product-disagree">Where corporate policy and the product disagree</a></li>
+        <li><a href="#s-one-sizing-footnote-worth-catching">One sizing footnote worth catching</a></li>
+      </ul>
+    </li>
+    <li><a href="#corp">Permissions, and who grants them</a>
+      <ul>
+        <li><a href="#s-the-pattern-behind-all-of-these">Which permission, and who can grant it</a></li>
+        <li><a href="#s-what-it-takes-to-grant-what-you-are-asking-for">Subscription Contributor is enough</a></li>
+        <li><a href="#s-the-approver-may-sit-above-your-subscription">The approver may sit above your subscription</a></li>
+        <li><a href="#s-the-roles-the-deployment-user-actually-needs">The roles the deployment user needs</a></li>
+        <li><a href="#s-one-identity-holding-all-of-that-is-a-proof-of-concept">Distributing those rights</a></li>
+        <li><a href="#s-a-domain-that-will-not-let-the-account-log-on">A domain that will not let the account log on</a></li>
+        <li><a href="#s-the-monitoring-agent-slot-is-already-taken">The monitoring agent slot is already taken</a></li>
+      </ul>
+    </li>
+    <li><a href="#prep">Prepare the machines</a>
+      <ul>
+        <li><a href="#s-set-the-firmware-before-you-mount-any-media">Set the firmware before any media</a></li>
+        <li><a href="#s-do-not-install-security-updates-from-the-first-boot-menu">Do not install updates at first boot</a></li>
+        <li><a href="#s-replace-inbox-drivers-before-you-validate">Replace inbox drivers before you validate</a></li>
+      </ul>
+    </li>
+    <li><a href="#setup">Build the cluster</a>
+      <ul>
+        <li><a href="#s-validation-is-the-project-deployment-is-the-easy-part">Run validation early and often</a></li>
+        <li><a href="#s-write-your-answers-down-before-you-open-the-wizard">Write your answers down before you open the wizard</a></li>
+        <li><a href="#s-what-validation-actually-stops-you-on">What validation actually stops you on</a></li>
+        <li><a href="#s-the-failure-text-is-not-meant-for-people">The failure text is not meant for people</a></li>
+        <li><a href="#s-network-atc-binds-a-vlan-to-an-adapter-name-not-to-a-port">Network ATC binds a VLAN to an adapter name</a></li>
+        <li><a href="#s-watch-the-run-through-the-api">Watch the run through the API</a></li>
+        <li><a href="#s-what-a-clean-run-looks-like">What a clean run looks like</a></li>
+      </ul>
+    </li>
+    <li><a href="#ops">Run workloads</a>
+      <ul>
+        <li><a href="#s-translate-the-resource-name-before-you-plan-around-it">Translate the resource name first</a></li>
+        <li><a href="#s-a-virtual-machine-here-is-an-arc-projection">A VM here is an Arc projection</a></li>
+        <li><a href="#s-images-are-something-you-own">Images are something you own</a></li>
+        <li><a href="#s-creating-a-machine">A machine is three resources</a></li>
+        <li><a href="#s-live-migration">Live migration needs headroom</a></li>
+        <li><a href="#s-kubernetes-is-where-scaling-lives">Kubernetes is where scaling lives</a></li>
+        <li><a href="#s-giving-a-service-an-address-people-can-reach">Plan the external address early</a></li>
+        <li><a href="#s-containers-without-kubernetes">Run Docker in a guest</a></li>
+        <li><a href="#s-size-the-worker-nodes-for-the-workload">Size the worker nodes for the workload</a></li>
+      </ul>
+    </li>
+  </ol>
+
+  <p class="toc-band">Living with it</p>
+  <ol>
+    <li><a href="#day2">Operate the cluster</a>
+      <ul>
+        <li><a href="#s-you-are-dealing-with-two-permission-systems-not-one">Two permission systems</a></li>
+        <li><a href="#s-is-it-healthy-right-now">Is it healthy right now</a></li>
+        <li><a href="#s-what-tells-you-before-someone-calls">What tells you, before someone calls</a></li>
+        <li><a href="#s-taking-a-node-out-and-putting-it-back">Taking a node out and putting it back</a></li>
+        <li><a href="#s-when-the-graceful-path-is-refused">When every graceful path is refused</a></li>
+        <li><a href="#s-replacing-a-failed-disk">Replacing a failed disk</a></li>
+        <li><a href="#s-patching">Keeping the system current</a></li>
+        <li><a href="#s-adding-a-node">Adding a node</a></li>
+        <li><a href="#s-diagnostics-for-support">Collecting diagnostics for support</a></li>
+        <li><a href="#s-getting-your-access-back">Getting your access back</a></li>
+        <li><a href="#s-when-something-is-wrong">When something is wrong</a></li>
+      </ul>
+    </li>
+    <li><a href="#ref">Command reference</a></li>
+  </ol>
+</nav>
+
+<!-- ============================================================ PART 1 -->
+<h2 class="part" id="req">Part 1. Plan the cluster</h2>
+
+<p>Microsoft publishes the requirements and keeps them current. Read those first, because this
+  part is not a substitute for them.</p>
+
+<div class="box">
+  <span class="lab">The baseline, and it is not repeated here</span>
+  <p><a href="https://learn.microsoft.com/en-us/azure/azure-local/concepts/system-requirements-23h2">System
+    requirements for Azure Local</a> covers machine count, processor, memory, drives, TPM, Secure
+    Boot, networking and the supported regions. The
+    <a href="https://aka.ms/azurelocalcatalog">Azure Local catalog</a> lists the hardware you can
+    buy and get supported for it.</p>
+</div>
+
+<p>What that page cannot tell you is which of its rules bite, and how. Everything below is either
+  a requirement you can satisfy on paper and still fail, or a decision that becomes difficult to
+  reverse once the hardware is in a rack.</p>
+
+<h3 id="s-the-requirements-are-a-checklist-the-order-is-not">When you satisfy a requirement matters</h3>
+
+<p>The documentation states this plainly:</p>
+
+<div class="box">
+  <span class="lab">System requirements for Azure Local</span>
+  <p>"Secure boot: Secure Boot must be present and turned on."</p>
+</div>
+
+<p>What it does not say is <em>when</em>. Windows seals its virtualization based security against
+  the Secure Boot state it saw during installation. Install with Secure Boot off, switch it on
+  afterwards to satisfy the checklist, and the machine stops booting. No repair path. A clean
+  install is the only way back.</p>
+
+<p>Treat Secure Boot as a firmware state to establish before any media is mounted, and the same
+  goes for TPM and hardware virtualization. Set the firmware, verify it, then image.</p>
+
+<p>One line in the requirements hints at the same problem, and it carries more weight than its
+  placement suggests. A reset can quietly undo work you have already done.</p>
+
+<div class="box">
+  <span class="lab">System requirements for Azure Local, BIOS resets</span>
+  <p>"If the BIOS, Secure Boot, or TPM is reset, consult your OEM to ensure that the required
+    optimized settings are applied."</p>
+</div>
+
+<h3 id="s-symmetry-is-a-purchasing-decision-not-a-validation-check">Symmetry is a purchasing decision</h3>
+
+<div class="box">
+  <span class="lab">System requirements for Azure Local</span>
+  <p>"Each machine must be the same model, manufacturer, have the same processor types, have the
+    same network adapters, and have the same number and type of storage drives."</p>
+</div>
+
+<p>Read as a requirement this is easy: every machine matches, so order them together and move on.
+  What bites is what it means for the cluster you already have. A machine you add later has to
+  match the machines already in it. Not the specification you wrote down. What is physically in
+  the cluster now.</p>
+
+<p>Decide two years from now that you want more capacity per node and you are not looking at an
+  upgrade. It is every node or none of them, and on a live cluster that means draining and opening
+  each machine in turn. This project changed its drive count once, before deployment, and it still
+  meant taking every machine apart.</p>
+
+<p>Decide the number at purchase. Decide it generously. Treat it as fixed for the life of the
+  cluster.</p>
+
+<div class="box">
+  <span class="lab">Buy the spare at the same time</span>
+  <p>A replacement drive has to match on type, capacity and performance. Buying one in three years
+    means finding a part that may no longer be sold. The documentation allows some flexibility for
+    repair, but the easy version of this problem is a spare in a drawer.</p>
+</div>
+
+<h3 id="s-firmware-can-present-drives-as-raid">Firmware can present compliant drives as RAID</h3>
+
+<p>The storage rules are unambiguous:</p>
+
+<div class="box">
+  <span class="lab">System requirements for Azure Local, data drive requirements</span>
+  <p>"Host bus adapter (HBA) cards must support simple pass-through mode for any storage devices
+    used with Storage Spaces Direct." and "RAID controller cards, SAN storage (Fibre Channel,
+    iSCSI, or FCoE), shared SAS enclosures connected to multiple machines, and any form of
+    multipath I/O (MPIO) where drives are accessible through multiple paths are not supported."</p>
+</div>
+
+<p>You can meet all of that, buy no RAID controller at all, and still end up with drives Storage
+  Spaces Direct refuses to pool. Firmware level features that remap NVMe devices, Intel VMD being
+  the common one, present the drives to Windows as though they sit behind a RAID layer. The
+  hardware is compliant. The presentation is not.</p>
+
+<p>The failure is quiet. The drives are present, they are healthy, they are the right size, and
+  nothing explains why they cannot be used. One command tells you. Run it on every node before you
+  deploy.</p>
+
+<pre><code>Get-PhysicalDisk | Select-Object FriendlyName, BusType, MediaType, Size, CanPool</code></pre>
+
+<p>Data drives should report <code>BusType</code> of <code>NVMe</code> or <code>SAS</code> or
+  <code>SATA</code>. Anything reporting <code>RAID</code> is not usable, no matter how healthy it
+  looks.</p>
+
+<div class="box">
+  <span class="lab">A second reason CanPool says false</span>
+  <p>Drives that arrive already partitioned report <code>CanPool=False</code> with
+    <code>CannotPoolReason=Insufficient Capacity</code>, which is misleading. They are not too
+    small. They need clearing first. Check the bus type before you assume the worst.</p>
+</div>
+
+<h3 id="s-adapters-are-qualified-by-role-and-the-role-is-binding">Network adapters are qualified by the role they carry</h3>
+
+<p>Hardware bought for this purpose generally satisfies this without anyone thinking about it, so
+  treat it as a check. It is worth knowing because the rule is absolute.</p>
+
+<div class="box">
+  <span class="lab">Microsoft Learn, host network requirements</span>
+  <p>"Before purchasing a machine for Azure Local, you must minimally have at least one adapter
+    that is qualified for management, compute, and storage as all three traffic types are required
+    on Azure Local."</p>
+  <p>"Using an adapter outside of its qualified traffic type is not supported."</p>
+  <p><a href="https://learn.microsoft.com/en-us/azure/azure-local/concepts/host-network-requirements">learn.microsoft.com/en-us/azure/azure-local/concepts/host-network-requirements</a></p>
+</div>
+
+<p>Adapters are certified in the Windows Server Catalog against those three roles. Confirm the
+  entry for the exact model before the order goes in, and move on.</p>
+
+<h4>Teaming requires the adapters to be identical</h4>
+
+<p>This is the part that still catches a well specified estate. Switch Embedded Teaming is the
+  only teaming technology the platform supports, and it constrains what can sit in a team.</p>
+
+<div class="box">
+  <span class="lab">Microsoft Learn, same page</span>
+  <p>"SET requires the use of symmetric (identical) adapters. Symmetric network adapters are those
+    that have the same: make (vendor), model (version), speed (throughput), configuration."</p>
+</div>
+
+<p>The practical test is the interface description. Adapters in a team should report descriptions
+  that match exactly, deviating only in a trailing numeral. Two cards from the same vendor at the
+  same speed can still be different models, and a replacement pulled from a spares shelf is the
+  usual way a mismatched one enters a cluster. Validation catches it, at the point where it is
+  most disruptive to correct.</p>
+
+<h3 id="s-the-domain-is-where-corporate-policy-and-the-product-disagree">The domain is where corporate policy and the product disagree</h3>
+
+<p>The documentation asks for an Active Directory domain and a deployment account, and states the
+  rights that account needs. It does not address whether a given domain's policy permits them.</p>
+
+<div class="box">
+  <span class="lab">Microsoft Learn, prepare Active Directory for deployment</span>
+  <p>"Interactive logon. The deployment user must be allowed to log on interactively." and "Log on
+    as a batch job. The deployment user must have the Log on as a batch job user rights."</p>
+  <p><a href="https://learn.microsoft.com/en-us/azure/azure-local/deploy/deployment-prep-active-directory">learn.microsoft.com/en-us/azure/azure-local/deploy/deployment-prep-active-directory</a></p>
+</div>
+
+<p>Interactive logon for a non person account is the opposite of what most corporate security
+  baselines enforce, and a hardened domain will often deny it through inherited policy that nobody
+  can lift for one account. That is not a misconfiguration. It is two reasonable positions in
+  conflict.</p>
+
+<p>Plan for a domain or an organizational unit where you control policy inheritance. Decide it
+  early, because it determines who you need to talk to and how long their process takes. Part 2
+  covers the rest of that conversation.</p>
+
+<h3 id="s-one-sizing-footnote-worth-catching">One sizing footnote worth catching</h3>
+
+<p>Boot drive guidance has a second tier that is easy to read past, and modern enterprise nodes
+  land on the wrong side of it.</p>
+
+<div class="box">
+  <span class="lab">System requirements for Azure Local, support and diagnosability</span>
+  <p>"To ensure adequate support and diagnosability for large memory Azure Local instances (those
+    with more than 768 GB of physical memory per machine), we recommend that you install OS disks
+    with a capacity of 400 GB or more."</p>
+</div>
+
+<p>The headline minimum is 200 GB. If your machines carry more than 768 GB of memory, that minimum
+  is not the number you want, because a kernel memory dump has to fit on the operating system
+  volume. Getting this wrong does not stop the cluster. It stops you diagnosing one, and you learn
+  that during the incident.</p>
+
+<p class="see"><b>See it run</b>
+  <a href="../capstone/prototype/v2/index.html">Movement 01, four nodes define the cluster</a>, for
+  what the hardware validator checks and what failing it looks like</p>
+
+<!-- ============================================================ PART 2 -->
+<h2 class="part" id="corp">Part 2. Permissions, and who grants them</h2>
+
+<p>A green field build does not hit most of what follows. Every item here applies when Azure Local
+  goes into a tenant and a domain that already have rules, owners, and security controls, none of
+  which were written with this product in mind.</p>
+
+<p>What follows is the list: which permission, what it is for, and the level required to grant it.
+  Specify the action and the scope.
+  <code>Microsoft.KubernetesRuntime/register/action</code> at a named subscription is precise
+  enough to be granted as written, where a role name carries far more than the deployment
+  needs.</p>
+
+<h3 id="s-the-pattern-behind-all-of-these">Which permission, and who can grant it</h3>
+
+<table>
+  <thead>
+    <tr><th>To do this</th><th>You need</th><th>At</th><th>Granted by</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Deploy at all</td>
+      <td>13 resource providers registered</td>
+      <td>Subscription</td>
+      <td>Subscription Owner or Contributor</td>
+    </tr>
+    <tr>
+      <td>Import a Marketplace image</td>
+      <td><code>Microsoft.EdgeMarketplace/register/action</code></td>
+      <td>Subscription</td>
+      <td>Subscription Owner or Contributor</td>
+    </tr>
+    <tr>
+      <td>Give a Kubernetes service an address on your network</td>
+      <td><code>Microsoft.KubernetesRuntime/register/action</code></td>
+      <td>Subscription</td>
+      <td>Subscription Owner or Contributor</td>
+    </tr>
+    <tr>
+      <td>Run the deployment</td>
+      <td>Eight roles, listed below</td>
+      <td>Resource group</td>
+      <td>User Access Administrator or Owner on that group</td>
+    </tr>
+    <tr>
+      <td>Assign those eight to yourself</td>
+      <td>User Access Administrator</td>
+      <td>Resource group</td>
+      <td>Owner at the group or above</td>
+    </tr>
+    <tr>
+      <td>Create a Kubernetes cluster on it</td>
+      <td>Azure Kubernetes Service Arc Contributor</td>
+      <td>Resource group</td>
+      <td>User Access Administrator on that group</td>
+    </tr>
+    <tr>
+      <td>Let the deployment account join machines to the domain</td>
+      <td>Interactive logon, log on as a batch job, and rights over the organizational unit</td>
+      <td>The organizational unit</td>
+      <td>Whoever administers that domain</td>
+    </tr>
+    <tr>
+      <td>Clear a conflicting security policy</td>
+      <td>Tag write, or a policy exemption</td>
+      <td>The scope the policy is assigned at</td>
+      <td>The owner of that scope, which may be above your subscription</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>The first three are the ones people are surprised by, because a provider registration is a
+  subscription level action and no resource group role grants it. Holding Azure Stack HCI
+  Administrator at the subscription and User Access Administrator at the resource group still
+  permits none of them.</p>
+
+<p class="pre-cap">What that refusal looks like</p>
+<pre><code>AuthorizationFailed: The client does not have authorization to perform action
+'Microsoft.KubernetesRuntime/register/action' over scope
+'/subscriptions/&lt;subscription-id&gt;'.</code></pre>
+
+<h3 id="s-what-it-takes-to-grant-what-you-are-asking-for">Subscription Contributor is enough to register a provider</h3>
+
+<p>The level required matters as much as the action itself.</p>
+
+<div class="box">
+  <span class="lab">Microsoft Learn, register machines and assign permissions</span>
+  <p>"Make sure that your Azure subscription is registered against the required resource
+    providers. To register, you must be an owner or contributor on your subscription. You can also
+    ask an administrator to register."</p>
+  <p><a href="https://learn.microsoft.com/en-us/azure/azure-local/deploy/deployment-arc-register-server-permissions">learn.microsoft.com/en-us/azure/azure-local/deploy/deployment-arc-register-server-permissions</a></p>
+</div>
+
+<p>Contributor is the documented minimum, so this requirement never escalates to Owner. Narrower
+  still is a custom subscription role carrying only the single <code>register/action</code>
+  involved, which is the smallest grant that does the job.</p>
+
+<p>The same page separates the two responsibilities explicitly.</p>
+
+<div class="box">
+  <span class="lab">Microsoft Learn, same page</span>
+  <p>"The assumption is that the person registering the Azure subscription with the resource
+    providers is a different person than the one who is registering the Azure Local machines with
+    Arc."</p>
+</div>
+
+<h4>Register them as one set</h4>
+
+<p>Deployment needs all thirteen. A missing provider does not fail at the point of registration.
+  It surfaces later as a validation error that names something else.</p>
+
+<p class="pre-cap">The full set, for whoever holds subscription Contributor</p>
+<pre><code>Register-AzResourceProvider -ProviderNamespace "Microsoft.HybridCompute"
+Register-AzResourceProvider -ProviderNamespace "Microsoft.GuestConfiguration"
+Register-AzResourceProvider -ProviderNamespace "Microsoft.HybridConnectivity"
+Register-AzResourceProvider -ProviderNamespace "Microsoft.AzureStackHCI"
+Register-AzResourceProvider -ProviderNamespace "Microsoft.Kubernetes"
+Register-AzResourceProvider -ProviderNamespace "Microsoft.KubernetesConfiguration"
+Register-AzResourceProvider -ProviderNamespace "Microsoft.ExtendedLocation"
+Register-AzResourceProvider -ProviderNamespace "Microsoft.ResourceConnector"
+Register-AzResourceProvider -ProviderNamespace "Microsoft.HybridContainerService"
+Register-AzResourceProvider -ProviderNamespace "Microsoft.Attestation"
+Register-AzResourceProvider -ProviderNamespace "Microsoft.Storage"
+Register-AzResourceProvider -ProviderNamespace "Microsoft.Insights"
+Register-AzResourceProvider -ProviderNamespace "Microsoft.KeyVault"</code></pre>
+
+<div class="box warn">
+  <span class="lab">Microsoft.Insights is the one that fails quietly</span>
+  <p>Learn states that without it "the diagnostic account and Key Vault audit logging fails during
+    validation". It is easy to treat as optional monitoring and it is not.</p>
+</div>
+
+<p>Two more providers sit outside that list and are worth deciding on early, because each unlocks
+  a capability you may be planning to demonstrate. <code>Microsoft.EdgeMarketplace</code> is
+  required before any Azure Local compatible Marketplace image can be imported.
+  <code>Microsoft.KubernetesRuntime</code> is required for MetalLB, and therefore for giving a
+  Kubernetes Service an address on your own network.</p>
+
+<h3 id="s-the-approver-may-sit-above-your-subscription">The approver may sit above your subscription</h3>
+
+<p>When a control is inherited from a management group, the subscription owner cannot lift it, and
+  you may not be able to see where it comes from. An <code>AuthorizationFailed</code> on
+  <code>Microsoft.Management</code> is itself the finding: the policy is assigned above you, and
+  the approver is a central team.</p>
+
+<p>Learn asks you to confirm this before deployment.</p>
+
+<div class="box">
+  <span class="lab">Microsoft Learn, Azure prerequisites</span>
+  <p>"Check your Azure policies. Make sure that: The Azure policies aren't blocking the
+    installation of extensions. The Azure policies aren't blocking the creation of certain
+    resource types in a resource group. The Azure policies aren't blocking the resource deployment
+    in certain locations."</p>
+</div>
+
+<div class="box">
+  <span class="lab">Apply the exception at the narrowest scope you can write to</span>
+  <p>A policy driven conflict does not always need a subscription wide exception. The monitoring
+    agent conflict below was resolved with a tag applied at the resource and resource group level,
+    a scope that remained writable when the subscription was denied. It also keeps the blast radius
+    to the machines that need it. Check what the control actually reads before assuming the
+    exception has to be granted at the top.</p>
+</div>
+
+<h3 id="s-the-roles-the-deployment-user-actually-needs">The roles the deployment user actually needs</h3>
+
+<p>Provider registration happens once, at the subscription. These are different. They attach to
+  the identity running the deployment, and they are assigned at the resource group rather than the
+  subscription.</p>
+
+<table>
+  <thead>
+    <tr><th>Role</th><th>Why it is needed</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Azure Stack HCI Administrator</td><td>The deployment itself</td></tr>
+    <tr><td>Reader</td><td>Listed by Microsoft, and already covered if you hold Contributor</td></tr>
+    <tr><td>Azure Connected Machine Onboarding</td><td>Registering the machines as Arc resources</td></tr>
+    <tr><td>Azure Connected Machine Resource Administrator</td><td>Managing those Arc resources afterwards</td></tr>
+    <tr><td>Key Vault Contributor</td><td>Creating the key vault used for deployment</td></tr>
+    <tr><td>Key Vault Secrets Officer</td><td>Reading and writing the deployment secrets</td></tr>
+    <tr><td>Key Vault Data Access Administrator</td><td>Managing data plane permissions on that vault</td></tr>
+    <tr><td>Storage Account Contributor</td><td>Creating the storage account used for deployment</td></tr>
+  </tbody>
+</table>
+
+<p>Add User Access Administrator at the resource group and you can assign most of that list to
+  yourself, which turns eight separate requests into one. Owner is not required for any of it.</p>
+
+<div class="box">
+  <span class="lab">Do not ask for a role you already have underneath another one</span>
+  <p>Contributor already contains Reader. Owner already contains Contributor and User Access
+    Administrator. Check what your existing assignments and any eligible roles already cover before
+    you send the list, because asking for a role you demonstrably hold invites a review of the
+    whole request. Eligible roles are the easy ones to miss, since they stay invisible in a plain
+    role assignment listing until somebody activates them.</p>
+</div>
+
+<p><b>Kubernetes is separate.</b> Holding the Azure Local roles does not let you create an AKS
+  cluster on it. That needs the Azure Kubernetes Service Arc Contributor role, and discovering it
+  late looks like a broken platform rather than a missing assignment.</p>
+
+<h3 id="s-one-identity-holding-all-of-that-is-a-proof-of-concept">One identity holding all of that is a proof of concept</h3>
+
+<p>The list above is what a deployment needs, which is a different question from how those rights
+  should be held. A single engineer activating every role for a working day is the right shape for
+  proving a platform and the wrong shape for running one.</p>
+
+<p>Distributed across the functions that exist in most organizations, the same permissions look
+  like this.</p>
+
+<table>
+  <thead>
+    <tr><th>Function</th><th>What it holds</th><th>Scope</th><th>How it is held</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Platform or subscription team</td>
+      <td>Provider registration, policy exemptions, the first role assignments</td>
+      <td>Subscription, and the management group above it</td>
+      <td>Standing for them. A one time request from you</td>
+    </tr>
+    <tr>
+      <td>Deployment operator</td>
+      <td>The eight roles above, plus User Access Administrator to assign them</td>
+      <td>The Azure Local resource group</td>
+      <td>Just in time, for the duration of a build</td>
+    </tr>
+    <tr>
+      <td>Cluster operations</td>
+      <td>Reader in Azure, plus failover cluster and storage rights through a domain group</td>
+      <td>Resource group, and the cluster itself</td>
+      <td>Reader standing. Anything that changes state, just in time</td>
+    </tr>
+    <tr>
+      <td>Workload owners</td>
+      <td>Azure Stack HCI VM Contributor, or AKS Arc Cluster User for Kubernetes</td>
+      <td>Resource group, or one cluster resource</td>
+      <td>Standing, where the workload is theirs to run</td>
+    </tr>
+    <tr>
+      <td>Automation</td>
+      <td>Only what its pipeline creates. Commonly Azure Stack HCI VM Contributor, and Storage
+        Blob Data Contributor on its own state account</td>
+      <td>Resource group, and one storage account</td>
+      <td>A federated workload identity. No secret in a pipeline variable</td>
+    </tr>
+    <tr>
+      <td>Reporting and dashboards</td>
+      <td>Reader, and nothing else</td>
+      <td>Resource group</td>
+      <td>Its own identity, never a person's elevated session</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="box">
+  <span class="lab">Every row is a group, not a person</span>
+  <p>Assign to Entra groups and domain groups throughout, and put the eligibility on the group.
+    Somebody joining cluster operations should be one group membership rather than a fresh set of
+    role assignments, and somebody leaving should be one removal. This also makes the answer to
+    "who can do this" a question you can answer without an audit.</p>
+</div>
+
+<h4>Separate the deployment identity from operations</h4>
+
+<p>The domain account that deploys the cluster needs interactive logon and rights over an
+  organizational unit. Afterwards it needs neither, and it should not be what anyone uses to
+  administer the cluster. Azure Local rotates the local machine credentials during deployment, so
+  the account you built the machines with stops working on purpose. Treat that as the intended
+  boundary and plan the operations path separately.</p>
+
+<div class="box warn">
+  <span class="lab">Service accounts have a lifecycle, and it is silent</span>
+  <p>The deployment account needs a password that stays stable through the build and does not
+    expire quietly afterwards. Record both the password expiry and any account expiry on the day
+    you create it. A lifecycle operation that fails a year later because a service account aged out
+    presents as a platform fault and is genuinely difficult to trace back.</p>
+</div>
+
+<h4>Two structural decisions that make the scoping real</h4>
+
+<p><b>The resource group boundary is a permission decision.</b> Every row above that says resource
+  group only means something if the cluster, its Arc machines, its key vault, its storage account
+  and its Kubernetes resources sit in one resource group that holds nothing else. Decide that
+  before deployment. The subscription cannot be changed afterwards, and moving resources later
+  means re-granting all of it.</p>
+
+<p><b>An exemption belongs in the policy system.</b> Switching off a conflicting control with a
+  tag is the mechanism the product gives you, and on its own it leaves no owner, no expiry and no
+  review. The enterprise form of the same change is a policy exemption recorded at the scope the
+  assignment lives on, with a named owner and a date it gets looked at again. Use the tag to
+  unblock the work, and open the exemption so the gap is visible to the people who own the
+  control.</p>
+
+<h3 id="s-a-domain-that-will-not-let-the-account-log-on">A domain that will not let the account log on</h3>
+
+<p>Azure Local deployment needs a domain account with rights that a hardened corporate domain
+  is usually configured to refuse. Inherited policy on the original domain blocked the path
+  outright, and the fix was not a policy exception. The project moved to a separate domain where
+  an organizational unit, the account, its direct permissions and a Group Policy boundary could
+  all be created.</p>
+
+<p>The requirement that causes the argument is this one. Have the citation to hand before you
+  ask:</p>
+
+<div class="box">
+  <span class="lab">Microsoft Learn, Azure Local deployment prerequisites</span>
+  <p>"Interactive logon. The deployment user must be allowed to log on interactively." and "Log on
+    as a batch job. The deployment user must have the Log on as a batch job user rights."</p>
+  <p><a href="https://learn.microsoft.com/en-us/azure/azure-local/deploy/deployment-prep-active-directory">learn.microsoft.com/en-us/azure/azure-local/deploy/deployment-prep-active-directory</a></p>
+</div>
+
+<p>Interactive logon for a non person account is the opposite of what most corporate security
+  baselines enforce, so expect to defend it. The product requires it, and the link above is your
+  primary source.</p>
+
+<h3 id="s-the-monitoring-agent-slot-is-already-taken">The monitoring agent slot is already taken</h3>
+
+<p>This one is the most likely to catch a corporate-managed build specifically, and it does not
+  look like a monitoring problem when it happens.</p>
+
+<dl class="scf">
+  <dt>Symptom</dt>
+  <dd><p>Azure Local observability will not come up. A mandatory extension never reaches a ready
+    state, and the deployment will not start.</p></dd>
+
+  <dt>Cause</dt>
+  <dd><p>The corporate security monitoring package, pushed by policy, had already claimed the
+    single monitoring agent slot on the machine. Azure Local wants that slot.</p></dd>
+
+  <dt>Fix</dt>
+  <dd><p>A scoped opt out, <code>SkipSecurityMonitoringAgent=true</code>, plus removal of the extension
+    that installed itself already.</p></dd>
+</dl>
+
+<div class="box warn">
+  <span class="lab">Record the exception properly</span>
+  <p>You are switching off a security control that somebody owns. Write down the scope, who
+    approved it, how it is rolled back and how you verified it, at the time you do it. That record
+    is the difference between a documented exception and an unexplained gap found later.</p>
+</div>
+
+<div class="box">
+  <span class="lab">An activated role is not immediately an effective one</span>
+  <p>A just in time activation can report active while the resource provider still refuses the
+    operation. An <code>AuthorizationFailed</code> in the first few minutes after activating is
+    usually propagation rather than a missing right. Activate ahead of the change window, then
+    confirm with one narrow read.</p>
+</div>
+
+<!-- ============================================================ PART 3 -->
+<h2 class="part" id="prep">Part 3. Prepare the machines</h2>
+
+<p>Three steps, and the order is itself the instruction. Firmware, then the operating system, then
+  drivers, and nothing that patches the machine until the platform does it for you.</p>
+
+<p>Two of the three cannot be corrected afterwards. Getting the sequence right is the whole of this
+  part.</p>
+
+<p>The installation itself is ordinary Windows work, Microsoft documents it, and this guide does
+  not repeat it. Keep Secure Boot on throughout, and have the storage controller driver to hand for
+  the partition screen. Everything below is the part that is specific to Azure Local.</p>
+
+<h3 id="s-set-the-firmware-before-you-mount-any-media">Set the firmware before you mount any media</h3>
+
+<p>Part 1 covers why Secure Boot has to be established before installation. The practical form is
+  one pass through firmware on every machine, completed before anything is imaged.</p>
+
+<table>
+  <thead>
+    <tr><th>Setting</th><th>Value</th><th>Why</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Boot mode</td><td>UEFI</td><td>Secure Boot requires it</td></tr>
+    <tr><td>Secure Boot</td><td>Enabled</td>
+      <td>Required, and sealed at installation. Enabling it later leaves the machine unbootable</td></tr>
+    <tr><td>TPM</td><td>2.0, enabled</td><td>Required, and checked by the hardware validator</td></tr>
+    <tr><td>Virtualization</td><td>Enabled, including IOMMU</td><td>The hypervisor will not start without it</td></tr>
+    <tr><td>Storage controller</td><td>Pass-through, no RAID and no NVMe remapping</td>
+      <td>Storage Spaces Direct refuses remapped drives. See Part 1</td></tr>
+    <tr><td>Option ROMs on add-in cards</td><td>Boot driver disabled for cards you never boot from</td>
+      <td>Secure Boot rejects an unsigned adapter option ROM, which halts the machine at every
+        power on</td></tr>
+  </tbody>
+</table>
+
+<p class="pre-cap">Verify on the machine, rather than trusting the firmware screen</p>
+<pre><code>Confirm-SecureBootUEFI
+Get-Tpm
+(Get-ComputerInfo).HyperVRequirementVirtualizationFirmwareEnabled</code></pre>
+
+<div class="box warn">
+  <span class="lab">A firmware reset undoes this</span>
+  <p>If the BIOS, Secure Boot or TPM is reset on a machine that is already deployed, the settings
+    above have to be re-applied before it comes back. Microsoft's requirements page says to
+    consult your vendor for the optimized settings after any such reset.</p>
+</div>
+
+<h3 id="s-do-not-install-security-updates-from-the-first-boot-menu">Do not install updates at first boot</h3>
+
+<p>A freshly imaged machine offers to install its own updates, which almost everywhere else is the
+  responsible thing to accept. On Azure Local it is the one action at this stage that cannot be
+  undone. Microsoft states the rule plainly.</p>
+
+<div class="box warn">
+  <span class="lab">Microsoft Learn, install the operating system</span>
+  <p>"Do not install Windows Updates using SConfig or Azure Update Manager. Updates are installed
+    during the deployment. Installing updates using SConfig or Azure Update Manager causes a
+    deployment failure."</p>
+  <p><a href="https://learn.microsoft.com/en-us/azure/azure-local/deploy/deployment-install-os">learn.microsoft.com/en-us/azure/azure-local/deploy/deployment-install-os</a></p>
+</div>
+
+<dl class="scf">
+  <dt>Symptom</dt>
+  <dd><p>Arc bootstrap refuses the machine, failing
+    <code>AzStackHci_OSImageRecipeValidation_LCU</code>.</p></dd>
+
+  <dt>Cause</dt>
+  <dd><p>The installation image is signed against a recipe that names exact update versions. The
+    check compares the machine to that recipe rather than to a minimum, so an update that is
+    newer still counts as a mismatch.</p></dd>
+
+  <dt>Fix</dt>
+  <dd><p>Re-image. Nothing short of that restores the match. The platform applies the right
+    updates itself during onboarding, which is the supported path and leaves validation
+    intact.</p></dd>
+</dl>
+
+<h4>The two menu options that matter</h4>
+
+<p>The first boot menu lists them one after the other. One is the safeguard and the other is the
+  failure.</p>
+
+<table>
+  <thead>
+    <tr><th>Option</th><th>What it does</th><th>What to do with it</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><b>5) Update setting</b></td>
+      <td>Controls whether the machine fetches and applies updates on its own</td>
+      <td>Set it to manual, before anything else</td>
+    </tr>
+    <tr>
+      <td><b>6) Install updates</b></td>
+      <td>Fetches and installs updates immediately</td>
+      <td><b>Never before deployment.</b> The machine has to be re-imaged afterwards</td>
+    </tr>
+  </tbody>
+</table>
+
+<figure class="aside">
+  <div class="aside-fig">
+    <img src="media/AzureLocal-ServerCoreMenu.png" alt="The configuration menu on first boot, listing option 5 update setting directly above option 6 install updates" />
+    <figcaption>Option 5 stops the machine updating itself. Option 6 is the failure, one line
+      below it.</figcaption>
+  </div>
+
+  <div class="box warn">
+    <span class="lab">Nobody has to choose it</span>
+    <p>Automatic updates are on by default, so a machine can reach this state with nobody having
+      touched the menu. Leave a freshly imaged machine overnight and it can apply updates on its
+      own schedule, arriving in the morning already unusable for deployment.</p>
+    <p>That is what option 5 prevents. Set it during the same session as the installation, because
+      the window before a return visit is the exposure.</p>
+  </div>
+</figure>
+
+<h3 id="s-replace-inbox-drivers-before-you-validate">Replace inbox drivers before you validate</h3>
+
+<p>Windows ships a working driver for most network adapters, and Azure Local does not accept it on
+  an adapter carrying an intent. The requirement and the test for it are both stated plainly.</p>
+
+<div class="box">
+  <span class="lab">Microsoft Learn, host network requirements, driver requirements</span>
+  <p>"Inbox drivers are not supported for use with Azure Local. To identify if your adapter is
+    using an inbox driver, run the following cmdlet. An adapter is using an inbox driver if the
+    <b>DriverProvider</b> property is <b>Microsoft</b>."</p>
+  <p>"If inbox driver is being used, download and install the latest driver from your OEM
+    partner's website."</p>
+  <p><a href="https://learn.microsoft.com/en-us/azure/azure-local/concepts/host-network-requirements">learn.microsoft.com/en-us/azure/azure-local/concepts/host-network-requirements</a></p>
+</div>
+
+<p class="pre-cap">The documented check, one adapter</p>
+<pre><code>Get-NetAdapter -Name &lt;AdapterName&gt; | Select *Driver*</code></pre>
+
+<p class="pre-cap">The same thing across a node, which is what you actually want</p>
+<pre><code>Get-NetAdapter |
+  Select-Object Name, InterfaceDescription, DriverProvider, DriverVersion</code></pre>
+
+<h4>How strict it is</h4>
+
+<p>Stricter than people expect on provenance, and not strict at all on currency. The rule is a
+  string comparison: an adapter fails if <code>DriverProvider</code> reads
+  <code>Microsoft</code>, and passes if it reads the vendor name. Nothing in the check looks at
+  the version or the date.</p>
+
+<p>That has a practical consequence when an adapter is old enough that its vendor no longer
+  publishes a current package. On this build the management adapter was running the Microsoft
+  supplied driver dated 2007. The vendor package that replaced it was itself from 2017, and
+  <code>DriverProvider</code> flipping from <code>Microsoft</code> to the vendor name was the
+  entire difference between failing and passing.</p>
+
+<div class="box warn">
+  <span class="lab">Passing the check and being current are two different things</span>
+  <p>The documentation says to install the latest driver from your OEM partner, and that is still
+    the right instruction. An older vendor driver satisfying the gate tells you the validator will
+    not block you. It does not tell you the driver is a good one to run, and a vendor driver that
+    has not been updated in years is worth raising with whoever owns support for that hardware.</p>
+</div>
+
+<p>Apply it to every adapter that carries an intent, management included. Management adapters are
+  the ones people skip, because they are visibly working and usually carrying the session you are
+  connected over. A working adapter on an inbox driver still fails validation. The check that
+  reports it is <code>AzureLocal_Network_Test_NetworkAdapter_InboxDriver</code>, which is worth
+  searching for directly.</p>
+
+<p class="see"><b>See it run</b>
+  <a href="../capstone/prototype/v2/index.html">Movement 00, six machines and two switches</a>, for
+  the state of the estate before any of this is configured</p>
+
+<!-- ============================================================ PART 4 -->
+<h2 class="part" id="setup">Part 4. Build the cluster</h2>
+
+<p>Microsoft documents the wizard, so this does not walk its pages. The useful thing to know
+  before you open it is that the wizard is the short part.</p>
+
+<p>A clean deployment on four machines runs <b>54 steps in about two hours and thirteen
+  minutes</b>. Plan the maintenance window around that figure. Plan the preparation before it
+  separately, because that is where the work actually sits.</p>
+
+<h3 id="s-validation-is-the-project-deployment-is-the-easy-part">Run validation early and often</h3>
+
+<p>There are two phases and they behave completely differently.</p>
+
+<table>
+  <thead>
+    <tr><th></th><th>Validation</th><th>Deployment</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Destructive</td><td>No</td><td>Yes, it configures the machines</td></tr>
+    <tr><td>Repeatable</td><td>Run it as often as you like</td><td>One attempt</td></tr>
+    <tr><td>On this build</td><td>Days to weeks</td><td>Two hours and thirteen minutes</td></tr>
+  </tbody>
+</table>
+
+<p>So run validation early and run it often. It is the same environment checker the portal runs,
+  it is non-destructive, and every pass returns a different blocker than the last one. Treat a
+  clean validation as the milestone. The deployment that follows is largely uneventful if you
+  earned it.</p>
+
+<div class="box">
+  <span class="lab">Validation is repeatable, deployment is not</span>
+  <p>Within a clean run of 54 steps there were no failures and no retries. That is not the same as
+    saying the deployment never needed retrying. Every correction happened during validation,
+    which is exactly where corrections belong.</p>
+</div>
+
+<h3 id="s-write-your-answers-down-before-you-open-the-wizard">Write your answers down before you open the wizard</h3>
+
+<p>The wizard asks for roughly forty values across eight pages, several of which need a decision
+  from somebody who is not in the room with you. Fill it in on paper first, in a file you keep,
+  and paste from that. Group the answers the way the wizard does: subscription, resource group,
+  instance name, region, cluster and storage options, identity provider and key vault, then the
+  security baseline, the machines, networking, management settings and volumes.</p>
+
+<p>Doing it this way survives the wizard changing, which it does.</p>
+
+<div class="box">
+  <span class="lab">From this project's wizard record</span>
+  <p>"Field names and page order shift slightly between Azure Local versions. The VALUES below are
+    what matter; map them to whatever the current wizard labels."</p>
+</div>
+
+<h4>Four answers that are easy to get wrong</h4>
+
+<p><b>The subscription cannot be changed afterwards.</b> Microsoft is explicit that once you have
+  selected a subscription and deployed, redeploying the cluster is the only way to move it. Confirm
+  you are in the subscription the cluster should live in for its whole life, not whichever one you
+  happen to hold rights in this week.</p>
+
+<p><b>The instance name becomes a cluster name.</b> Keep it under fifteen characters so it is
+  valid as a NetBIOS name. You will not be warned pleasantly about this later.</p>
+
+<p><b>The IP range needs headroom, not the minimum.</b> A four node deployment consumes six
+  addresses. Reserving exactly six leaves you nothing for an addition or a repair, and the range
+  is not trivially changed afterwards. Ask the address owner for more than you need, in writing,
+  before you start.</p>
+
+<p><b>The witness answer depends on your node count.</b> On an even numbered cluster a witness
+  breaks ties. On odd numbers the nodes hold quorum themselves. Decide deliberately and record
+  why, because it is the sort of thing nobody can reconstruct
+  later.</p>
+
+<h3 id="s-what-validation-actually-stops-you-on">What validation actually stops you on</h3>
+
+<p>Validation failures name a specific check. Those names are the most useful thing in the output
+  because they are searchable, and the failure text around them usually is not.</p>
+
+<p>These are the ones that blocked this project, with what each one really meant.</p>
+
+<table>
+  <thead>
+    <tr><th>Check</th><th>What it meant</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>AzStackHci_Hardware_SecureBoot</code></td>
+      <td>Firmware state wrong on some machines. Covered in part 1, and the fix is a rebuild if
+        you find it late</td>
+    </tr>
+    <tr>
+      <td><code>AzStackHci_Hardware_Test_NetAdapter</code></td>
+      <td>An adapter was <b>disabled, not missing</b>. The gate wants each node to present a
+        physical adapter that is up and not USB. Re-enabling the device cleared it with no
+        reboot</td>
+    </tr>
+    <tr>
+      <td><code>AzStackHci_Hardware_PhysicalDisk</code></td>
+      <td>Storage not visible to the platform. Usually a driver or a presentation problem rather
+        than a dead disk</td>
+    </tr>
+    <tr>
+      <td><code>AzStackHci_OSImageRecipeValidation_LCU</code></td>
+      <td>The node was patched after imaging and no longer matches the recipe it was built from.
+        Covered in part 3. Requires a re-image</td>
+    </tr>
+    <tr>
+      <td><code>AzStackHci_ExternalActiveDirectory_Test_OrganizationalUnit_OuGpoInheritance</code></td>
+      <td>Group Policy inheritance is not blocked on the target organizational unit. Needs the
+        domain owner</td>
+    </tr>
+    <tr>
+      <td><code>AzStackHci_ExternalActiveDirectory_Test_OrganizationalUnit_ExecutingAsDeploymentUser</code></td>
+      <td>The deployment account cannot create and delete computer objects in that organizational
+        unit. Needs specific permissions granted to that account</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="box warn">
+  <span class="lab">Pre-flight the things that have no pre-flight</span>
+  <p>Whatever a check can tell you, you can usually test yourself first. This project built a
+    storage check that ran before validation and built no equivalent for networking, so the
+    network fault surfaced late, from the validator. Write the pre-flight for
+    every requirement you intend to meet.</p>
+</div>
+
+<h3 id="s-the-failure-text-is-not-meant-for-people">The failure text is not meant for people</h3>
+
+<p>When a check fails, the detail arrives as an exception string buried inside nested JSON, often
+  repeating the same finding once per node and per direction. Reading it in the portal is genuinely
+  difficult, and it is easy to mistake one problem repeated twenty four times for twenty four
+  problems. Pull the deployment settings resource, find the first step in error, extract the
+  exception text, and group the findings by check name with a count and the affected nodes. A few
+  lines of parsing turns an unreadable blob into one readable line for each real problem.</p>
+
+<p>This matters. Storage validation reported zero of six connections working, which reads like a
+  switch fault. Grouped properly it was one fault, on three of four nodes, and the cause was
+  adapter naming rather than cabling. The next section covers that failure in full.</p>
+
+<h3 id="s-network-atc-binds-a-vlan-to-an-adapter-name-not-to-a-port">Network ATC binds a VLAN to an adapter name</h3>
+
+<p>Worth reading even on different hardware, because the failure teaches you how the platform
+  applies network configuration to an adapter.</p>
+
+<dl class="scf">
+  <dt>Symptom</dt>
+  <dd><p>Zero of six east to west storage connections succeed, on all four nodes, in both
+    directions, on both VLANs. Every link reports up at 100 Gbps the entire time.</p></dd>
+
+  <dt>Cause</dt>
+  <dd><p>Two problems stacked. Windows had enumerated the storage adapters in a different order on
+    three of the four nodes, so the port named <code>Port3</code> was physically wired to the wrong
+    switch on those machines. Network ATC applies a VLAN to an adapter <em>name</em>, so it tagged
+    VLAN 711 onto ports connected to the switch carrying 712. That split the storage fabric across
+    two switches with no path between them. Separately, one switch was in access mode and was
+    dropping tagged frames.</p></dd>
+
+  <dt>Fix</dt>
+  <dd><p>Rename the adapters by MAC address so the name matches the physical port, then re-apply.
+    No recabling. The cabling had been correct the whole time.</p></dd>
+</dl>
+
+<p>Confirm which switch and port each adapter actually reaches before you assume a cabling fault.
+  A capture filtered to LLDP reports it directly, and takes about a minute per node.</p>
+
+<p class="pre-cap">Map each adapter to its switch and port</p>
+<pre><code>pktmon filter add LLDP --ethertype 0x88CC
+pktmon start --capture</code></pre>
+
+<p class="pre-cap">Then rename to match, keyed on MAC address</p>
+<pre><code>Rename-NetAdapter -Name &lt;name matched by MAC&gt; -NewName Port3</code></pre>
+
+<div class="box">
+  <span class="lab">The general rule</span>
+  <p>Adapter names are the contract between your cabling and the platform's network intent. They
+    have to mean the same thing on every node. Verify the mapping before deployment, because
+    Network ATC will apply a valid configuration to the wrong physical port without reporting
+    anything wrong.</p>
+</div>
+
+<h3 id="s-watch-the-run-through-the-api">Watch the run through the API</h3>
+
+<p>The portal shows you progress. It does not show you which of fifty four steps you are on, when
+  a step changed state, or what a step said when it failed.</p>
+
+<p>The deployment settings resource carries a nested step tree that updates as the run proceeds.
+  Poll it every couple of minutes, flatten the tree, and print a line only when a leaf step changes
+  status. That gives you a readable log of the whole deployment and, more usefully, tells you
+  whether a long step is still moving.</p>
+<pre><code>GET /subscriptions/&lt;sub&gt;/resourceGroups/&lt;rg&gt;/providers/Microsoft.AzureStackHCI
+    /clusters/&lt;cluster&gt;/deploymentSettings/default?api-version=2024-04-01</code></pre>
+
+<p>During validation the interesting branch is the validation status steps. During deployment it
+  is the deployment status step tree, which nests as step zero with substeps beneath it. Save each
+  poll to disk, because the failure detail you want is often gone from the current response by the
+  time you look.</p>
+
+<h3 id="s-what-a-clean-run-looks-like">What a clean run looks like</h3>
+
+<p>Useful mainly so you know whether to worry. Two steps take far longer than the rest, and both
+  look like a hang if you do not know that.</p>
+
+<table>
+  <thead>
+    <tr><th>Phase</th><th>Roughly</th><th>What happens</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Preparation and agents</td><td>35 min</td>
+      <td>Requirements resolved and agents installed. One step here runs about 27 minutes on its
+        own</td></tr>
+    <tr><td>Cluster, network, storage</td><td>35 min</td>
+      <td>The failover cluster is created and domain joined, then Network ATC applies the teaming,
+        RDMA and traffic class configuration</td></tr>
+    <tr><td>Security and Arc infrastructure</td><td>70 min</td>
+      <td>Security baseline, then the Arc resource bridge. <b>That single step is about 64 minutes
+        and is the heaviest in the deployment</b></td></tr>
+    <tr><td>Finalization</td><td>20 min</td><td>The remaining steps</td></tr>
+  </tbody>
+</table>
+
+<p>Around two and a quarter hours in total on four machines. If you are an hour into a step that
+  mentions Arc infrastructure, that is normal.</p>
+
+<p class="see"><b>See it run</b>
+  <a href="../capstone/prototype/v2/index.html">Movement 02, the nodes become fabric</a>, for the
+  deployment itself and the cluster it leaves behind</p>
+
+<!-- ============================================================ PART 5 -->
+<h2 class="part" id="ops">Part 5. Run workloads</h2>
+
+<p>Somebody hands you a design asking for a VM Scale Set behind a Standard Load Balancer. Neither
+  resource exists on Azure Local. One of those outcomes is fully available, the other only if the
+  workload can become a container, and nothing in the portal tells you which is which.</p>
+
+<p>That is the recurring difficulty here. The platform runs VMs, images, Kubernetes and containers
+  perfectly well; what catches people is arriving with Azure vocabulary, because a few of those
+  words name things that are not here.</p>
+
+<h3 id="s-translate-the-resource-name-before-you-plan-around-it">Translate the resource name before you plan around it</h3>
+
+<p>When a requirement arrives written in Azure resource names, do not check whether Azure Local
+  has that resource. Ask what the resource was for, then find the mechanism that produces the same
+  outcome. Most requirements survive that translation, and the few that do not are worth finding
+  while the design is still on paper.</p>
+
+<table>
+  <thead>
+    <tr><th>Asked for</th><th>What it was for</th><th>How Azure Local gets there</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>VM Scale Set</td>
+      <td>Instance count that follows demand</td>
+      <td>AKS node pool with the cluster autoscaler. No equivalent exists for plain VMs</td>
+    </tr>
+    <tr>
+      <td>Availability Set</td>
+      <td>Related instances kept apart on failure</td>
+      <td>Clustered VM roles for VMs, replicas and topology spread for pods</td>
+    </tr>
+    <tr>
+      <td>Standard Load Balancer</td>
+      <td>One stable address over healthy backends</td>
+      <td>A Kubernetes Service, with MetalLB when the address must live on your network</td>
+    </tr>
+    <tr>
+      <td>Marketplace image</td>
+      <td>A known good starting point</td>
+      <td>The instance image gallery, fed from Edge Marketplace or from a VHDX you build</td>
+    </tr>
+    <tr>
+      <td>Managed database</td>
+      <td>A database whose patching is handled for you</td>
+      <td>SQL Managed Instance enabled by Arc, running on AKS, subject to its own sizing floor</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="box">
+  <span class="lab">The one that is genuinely absent</span>
+  <p>A pool of ordinary VMs that grows and shrinks on its own has no mechanism here, and the reason
+    is structural rather than a gap in the roadmap. A scale set builds identical instances from one
+    shared model, and Azure Local lists cloning a VM among its unsupported operations, warning that
+    it "can result in corruption, management errors, or failure to start". If a workload needs
+    automatic instance count and cannot become a container, the honest answer is no.</p>
+</div>
+
+<p class="src"><b>Source</b>
+  <a href="https://learn.microsoft.com/azure/azure-local/manage/virtual-machine-operations">Supported operations for Azure Local VMs</a></p>
+
+<h3 id="s-a-virtual-machine-here-is-an-arc-projection">A virtual machine here is an Arc projection</h3>
+
+<p>Microsoft's own definition is the thing to hold on to.</p>
+
+<div class="box">
+  <span class="lab">How the product describes them</span>
+  <p>"Windows and Linux VMs hosted outside Azure, on your corporate network, running on Azure
+    Local."</p>
+</div>
+
+<p>They are created and managed through Azure, and they run on your hardware. That split explains
+  most of the behaviour you will meet. Portal and CLI operations travel through Arc, so they depend
+  on the control path being healthy, and anything that assumed a regional Azure construct underneath
+  is unavailable.</p>
+
+<p>Vertical resizing is supported, and it is the platform's answer to capacity pressure on a single
+  workload. vCPU count, memory, and the minimum and maximum memory values can all be changed while
+  the machine keeps running.</p>
+
+<p>Build VMs with the guest agent enabled unless you have a reason not to. That is what makes a VM
+  manageable from Azure afterwards, and it
+  is far easier to set at creation than to add later.</p>
+
+<p class="pre-cap">Where a machine is, and whether it is running</p>
+<pre><code>az stack-hci-vm show \
+  --resource-group &lt;rg&gt; --name &lt;vm&gt; \
+  --query "{state:properties.provisioningState,
+            power:properties.status.powerState,
+            host:properties.hostNodeName}"</code></pre>
+
+<p>Power state sits at <code>properties.status.powerState</code>. There is no instance view here,
+  which is the first place an Azure habit sends you looking.</p>
+
+<h3 id="s-images-are-something-you-own">Images are something you own</h3>
+
+<p>There are two supply routes and you will probably use both. Edge Marketplace gives you
+  first-party images pulled into the instance gallery. A VHDX you build yourself covers everything
+  else, and the process is genuinely straightforward: convert a cloud image, place it on cluster
+  storage, then register it.</p>
+
+<p class="pre-cap">Register an image into the gallery</p>
+<pre><code>az stack-hci-vm image create \
+  --resource-group &lt;rg&gt; --name &lt;image-name&gt; \
+  --custom-location &lt;custom-location-id&gt; \
+  --storage-path-id &lt;storage-container-id&gt; \
+  --os-type &lt;Linux|Windows&gt;</code></pre>
+
+<p>Two things catch people. Both require rebuilding the image.</p>
+
+<p><b>The Windows Server SKU has to be the Azure Edition one.</b> Edge Marketplace accepts
+  <code>2025-datacenter-azure-edition-core</code> and rejects the ordinary
+  <code>2025-datacenter</code> SKUs, even though the standard Azure catalog resolves them
+  perfectly well. The error does not explain this.</p>
+
+<p><b>Linux images need to be cloud images.</b> First boot provisioning arrives on temporary
+  virtual drives that cloud-init reads, which is how the administrative user and SSH key get
+  created. An image without that path deploys successfully and then refuses your credentials, and
+  the platform reports nothing wrong because nothing platform-side is wrong.</p>
+
+<h3 id="s-creating-a-machine">A machine is three resources</h3>
+
+<p>A logical network, a network interface, then the machine itself. The logical network is built
+  once and shared. The interface belongs to a single machine and has to exist before the machine
+  that uses it.</p>
+
+<p class="pre-cap">Create the interface, then the machine</p>
+<pre><code>az stack-hci-vm network nic create \
+  --resource-group &lt;rg&gt; --name &lt;vm&gt;-nic \
+  --custom-location &lt;custom-location-id&gt; \
+  --subnet-id &lt;logical-network-name&gt;
+
+az stack-hci-vm create \
+  --resource-group &lt;rg&gt; --name &lt;vm&gt; \
+  --custom-location &lt;custom-location-id&gt; \
+  --image &lt;image-name&gt; --nics &lt;vm&gt;-nic \
+  --size Default --admin-username &lt;user&gt; \
+  --authentication-type all --ssh-key-values "&lt;public key&gt;" \
+  --enable-agent true</code></pre>
+
+<p>Deleting walks the same list backwards. The machine, then its interface, then the logical
+  network once nothing references it any more. An interface refuses to delete while a machine
+  still holds it, and the refusal describes the attachment instead of naming the machine.</p>
+
+<div class="box">
+  <span class="lab">Four things the command line will not tell you</span>
+  <p><b>Sizing comes from <code>--size</code> and nothing else.</b> No flag sets vCPU count or
+    memory at creation. Choose a published size, then resize once the machine exists.</p>
+  <p><b>Leave <code>--os-type</code> out when the gallery image already carries it.</b> Supplying
+    it a second time reads as a conflict.</p>
+  <p><b>A password is mandatory even when you are using keys.</b> Generate one, put it somewhere
+    you can retrieve it, and pass it alongside the key. With no terminal attached, the command
+    crashes instead of prompting for it.</p>
+  <p><b>Brackets in a switch name break the Windows command line wrapper.</b> The default switch
+    is named <code>ConvergedSwitch(compute_management)</code>, and the batch shim reads the
+    parentheses as syntax. Call the CLI through its Python entry point when a value contains
+    them.</p>
+</div>
+
+<p class="pre-cap">Stop, start, restart</p>
+<pre><code>az stack-hci-vm stop    --resource-group &lt;rg&gt; --name &lt;vm&gt;
+az stack-hci-vm start   --resource-group &lt;rg&gt; --name &lt;vm&gt;
+az stack-hci-vm restart --resource-group &lt;rg&gt; --name &lt;vm&gt;</code></pre>
+
+<p>A graceful stop asks the guest to shut itself down, so it depends on integration services
+  being present inside that guest. A minimal image without them fails with a device error rather
+  than a timeout, and <code>--skip-shutdown</code> cuts the power instead. Full distributions
+  stop cleanly. Test images often do not.</p>
+
+<h3 id="s-live-migration">Live migration needs headroom</h3>
+
+<p>Moving a running VM between nodes works, and it rides the same RDMA storage fabric that Part 4
+  spent so long getting correct. There is nothing separate to configure. If storage validation
+  passed, this passes.</p>
+
+<p class="pre-cap">Move one machine, run from a node</p>
+<pre><code>Move-ClusterVirtualMachineRole -Name &lt;vm&gt; -Node &lt;target&gt; -MigrationType Live</code></pre>
+
+<p>Ownership changes, and the role stays <code>Online</code> the whole way through. Those two
+  facts together are the proof. Resist using a ping from a workstation as the test, because any
+  network that filters ICMP will report a successful migration as a failure.</p>
+
+<p>Only memory and device state cross the wire. The virtual disks never move, because every node
+  already reaches the same Storage Spaces Direct volumes. That is why this is fast, and it is also
+  why it depends on the storage fabric being healthy rather than on anything you configure for
+  migration.</p>
+
+<p>Capacity is the planning consequence. A node has to absorb whatever its neighbours hand it,
+  during a maintenance drain or after a failure, so size each one to carry its own load plus a
+  share of one more.</p>
+
+<p class="see"><b>See it run</b>
+  <a href="../capstone/prototype/v2/index.html">Movement 07, a machine moves and nothing notices</a></p>
+
+<h3 id="s-kubernetes-is-where-scaling-lives">Kubernetes is where scaling lives</h3>
+
+<p>AKS enabled by Azure Arc is the supported orchestration path, and it is also the only route to
+  an instance count that responds to demand. The cluster autoscaler is a first class feature with
+  its own flags on <code>az aksarc create</code>, taking
+  <code>--enable-cluster-autoscaler</code> with <code>--min-count</code> and
+  <code>--max-count</code> on a node pool. It adds and removes worker VMs on the instance as pods
+  fail to schedule.</p>
+
+<p class="pre-cap">A cluster whose node count follows demand</p>
+<pre><code>az aksarc create \
+  --resource-group &lt;rg&gt; --name &lt;cluster&gt; \
+  --custom-location &lt;custom-location-id&gt; \
+  --enable-cluster-autoscaler \
+  --min-count &lt;n&gt; --max-count &lt;n&gt;</code></pre>
+
+<p>The networking arguments change between CLI versions often enough that copying them from an
+  older article will fail. Take those from the current reference and keep the autoscaler flags
+  above, which have been stable.</p>
+
+<p>Windows node pools are supported, which matters more than it first appears. It means the
+  autoscaling outcome is reachable for a Windows workload, on the condition that the workload can
+  become a container. A classic application server that must remain a VM has no path here, and
+  re-platforming it is application work rather than configuration.</p>
+
+<p>Published capacity limits apply and are worth reading before the design settles, including a
+  maximum of twelve clusters per Azure Local environment once the autoscaler is in use.</p>
+
+<p class="src"><b>Source</b>
+  <a href="https://learn.microsoft.com/azure/aks/aksarc/auto-scale-aks-arc">Cluster autoscaler on AKS Arc</a>,
+  <a href="https://learn.microsoft.com/azure/aks/aksarc/scale-requirements">Scale requirements for AKS on Azure Local</a></p>
+
+<p class="see"><b>See it run</b>
+  <a href="../capstone/prototype/v2/index.html">Movement 03, scheduling arrives</a></p>
+
+<h3 id="s-giving-a-service-an-address-people-can-reach">Plan the external address before you need it</h3>
+
+<p>Inside the cluster, a Kubernetes Service does what you expect. Traffic distributes across ready
+  pods and endpoints reconcile as replicas change or recover.</p>
+
+<p>Reaching that service from your network needs an address from your network, and MetalLB is the
+  mechanism that assigns one. Two things about it belong in the planning stage.</p>
+
+<p>Reserve a VIP range at the same time as the rest of the cluster addresses, so the whole
+  allocation is defined in one go.</p>
+
+<p>Check the resource provider registration early. MetalLB depends on
+  <code>Microsoft.KubernetesRuntime</code>, which is exactly the class of subscription level
+  permission Part 2 warns about. A refused registration leaves the workload reachable only from
+  inside the cluster.</p>
+
+<p class="see"><b>See it run</b>
+  <a href="../capstone/prototype/v2/index.html">Movement 04, payload is served</a></p>
+
+<h3 id="s-containers-without-kubernetes">Run Docker in a guest VM</h3>
+
+<p>Docker belongs in a Linux guest VM on the cluster. Do not install it on the host nodes.</p>
+
+<p>The host runs a locked appliance operating system whose servicing is managed by the platform.
+  Software installed there is unsupported and complicates updates. Running the container host as a
+  guest keeps the hosts in the state the platform expects.</p>
+
+<p>For anything beyond a single container host, use AKS. The guest VM route is for build work, for
+  a small always-on service, or for a team that wants Docker without adopting Kubernetes.</p>
+
+<p class="see"><b>See it run</b>
+  <a href="../capstone/prototype/v2/index.html">Movement 06, Kubernetes is optional</a></p>
+
+<h3 id="s-size-the-worker-nodes-for-the-workload">Size the worker nodes for the workload</h3>
+
+<p>The published AKS defaults are a starting point for a cluster with nothing on it, and they are
+  smaller than most real workloads need.</p>
+
+<table>
+  <thead>
+    <tr><th>Role</th><th>Default size</th><th>Memory and CPU</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Linux worker node</td><td><code>Standard_A4_v2</code></td><td>8 GB, 4 vCPU</td></tr>
+    <tr><td>Windows worker node</td><td><code>Standard_K8S3_v1</code></td><td>6 GB, 4 vCPU</td></tr>
+  </tbody>
+</table>
+
+<p>Managed services have their own floors underneath those numbers. SQL Managed Instance enabled by
+  Arc expects a node of at least 8 GB and around 16 GB of free capacity in the cluster, so a default
+  worker cannot host it. Decide what the cluster is for, find the sizing requirement of the largest
+  thing you intend to run, and size the node pool from that. Growing a node pool later is supported
+  and uneventful, so size up.</p>
+
+<div class="box">
+  <span class="lab">Check the engine before you promise a managed database</span>
+  <p>The managed options are engine specific. Arc-enabled PostgreSQL was retired in July 2025, so
+    Postgres workloads have no managed path on this platform and land on a container or a VM you
+    maintain. Name the application and its engine first, because that decides whether a managed
+    option exists at all.</p>
+</div>
+
+<p class="src"><b>Source</b>
+  <a href="https://learn.microsoft.com/azure/aks/aksarc/scale-requirements">Scale requirements for AKS on Azure Local</a></p>
+
+<div class="box todo">
+  <span class="lab">Where this guidance comes from</span>
+  <p>The methods above are the supported ones, taken from the product documentation linked through
+    this part. VM lifecycle, custom images, live migration, host failure recovery, an AKS cluster
+    and Docker in a guest were all run end to end on four machines. The cluster autoscaler,
+    MetalLB and a managed database were not, for reasons of capacity and subscription permission
+    specific to that environment, so treat those three as documented rather than demonstrated.</p>
+</div>
+
+<p class="see"><b>See it run</b>
+  <a href="../capstone/prototype/v2/index.html">Movement 10, what was proven</a>, which separates the
+  demonstrated from the documented across the whole platform</p>
+
+<!-- ============================================================ PART 6 -->
+<h2 class="part" id="day2">Part 6. Operate the cluster</h2>
+
+<div class="box">
+  <span class="lab">This part is for a different reader</span>
+  <p>Everything before this covers building the cluster. This part covers running one that is
+    already built. It repeats anything it needs, because the person servicing a cluster is often
+    not the person who built it and should not have to read five parts to find out whether the
+    thing is healthy. Where it does point back, the earlier part explains a constraint you are
+    still living under, and the detail you need is repeated here.</p>
+</div>
+
+<h3 id="s-you-are-dealing-with-two-permission-systems-not-one">Two permission systems govern the cluster</h3>
+
+<p>This catches people, and it catches them in both directions.</p>
+
+<table>
+  <thead>
+    <tr><th>Where you are</th><th>What governs you</th><th>What it covers</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Azure portal, <code>az</code> CLI</td>
+      <td>Azure RBAC, usually through a time limited elevation</td>
+      <td>The cluster resource, Arc virtual machines, AKS, extensions, images</td>
+    </tr>
+    <tr>
+      <td>PowerShell on a node</td>
+      <td>Windows and Active Directory rights on the cluster itself</td>
+      <td>Failover clustering, Storage Spaces Direct, Network ATC, the disks</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>Holding Contributor in Azure does not let you run <code>Get-StorageJob</code>. Being a local
+  administrator on a node does not let you start a virtual machine from the portal. Most real
+  diagnosis happens in the second column, and most of it is read only.</p>
+<div class="box">
+  <span class="lab">Assume least privilege and find out early</span>
+  <p>Work out which of the two you have before you need them, not during an incident. The
+    read only commands in this part are safe to run at the lowest level of access that can reach
+    the cluster at all. Everything marked as a change needs more, and needs a change record.</p>
+</div>
+
+<h3 id="s-is-it-healthy-right-now">Is it healthy right now</h3>
+
+<p>Six read only commands. None of them alter anything, and together they cover the four things
+  that break: nodes, storage, repair work in flight, and the network intent.</p>
+
+<p class="pre-cap">Run these on a cluster node</p>
+<pre><code>Get-ClusterNode
+Get-ClusterStorageSpacesDirect
+Get-StoragePool
+Get-VirtualDisk
+Get-StorageJob
+Get-NetIntentStatus</code></pre>
+
+<h4>Reading the answer</h4>
+
+<table>
+  <thead>
+    <tr><th>Command</th><th>What good looks like</th><th>What to notice</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>Get-ClusterNode</code></td>
+      <td>Every node <code>Up</code></td>
+      <td><code>Paused</code> means somebody drained it and may not have put it back</td>
+    </tr>
+    <tr>
+      <td><code>Get-VirtualDisk</code></td>
+      <td><code>Healthy</code> and <code>OK</code></td>
+      <td><code>Degraded</code> is not down. It means a copy is missing and the data is still
+        served</td>
+    </tr>
+    <tr>
+      <td><code>Get-StorageJob</code></td>
+      <td>Usually empty</td>
+      <td>A repair job here is the cluster healing itself. Let it finish before you touch
+        anything</td>
+    </tr>
+    <tr>
+      <td><code>Get-NetIntentStatus</code></td>
+      <td>Provisioning complete on every node</td>
+      <td>This is the only place that tells you the network configuration actually applied</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="box">
+  <span class="lab">Degraded is the normal state during recovery</span>
+  <p>A three way mirror survives losing a copy. Seeing <code>Degraded</code> alongside a running
+    <code>Get-StorageJob</code> is the system working, not failing. Escalate a degraded disk that
+    has no repair job running and no explanation for it.</p>
+</div>
+
+<h3 id="s-what-tells-you-before-someone-calls">What tells you, before someone calls</h3>
+
+<p>Those six commands prove the cluster is healthy at the moment you run them. Something has to
+  cover the rest of the week.</p>
+
+<table>
+  <thead>
+    <tr><th>What it is</th><th>What it covers</th><th>What you configure</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Health alerts</td>
+      <td>More than eighty faults from the operating system health service: volume capacity,
+        storage quality of service, physical disk and adapter hardware, node CPU and memory,
+        cluster configuration</td>
+      <td>Nothing. They are system generated, with no workspace to stand up and no rule to
+        write</td>
+    </tr>
+    <tr>
+      <td>Recommended alert rules</td>
+      <td>A predefined metric set covering the obvious ones, CPU percentage and available memory
+        among them</td>
+      <td>Enable them on the cluster resource</td>
+    </tr>
+    <tr>
+      <td>Insights</td>
+      <td>Dashboards for nodes, machines and storage, including IOPS, throughput and latency</td>
+      <td>Azure Monitor Agent and a Log Analytics workspace</td>
+    </tr>
+    <tr>
+      <td>Metrics</td>
+      <td>Over sixty numeric series in a time series database, queryable in Metrics Explorer</td>
+      <td>The telemetry and diagnostics extension, which deployment already installed</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>Turn the health alerts and the recommended rules on first. They ask the least of you, and they
+  catch the faults an operator would otherwise find only by running commands on a hunch.</p>
+
+<div class="box warn">
+  <span class="lab">The failure that raises nothing</span>
+  <p>A storage repair can stop partway and simply sit there. The volume reports
+    <code>Warning</code>, the pool still reports <code>Healthy</code>, and no alert fires for the
+    combination. On this cluster a repair with eight gibibytes to move stayed suspended at zero
+    per cent for ten days, on a pool with more than three terabytes free and every node up.</p>
+  <p>Put <code>Get-StorageJob</code> on a schedule. Checking it on suspicion means checking it
+    only after somebody has already noticed something else.</p>
+</div>
+
+<p class="src"><b>Source</b>
+  <a href="https://learn.microsoft.com/azure/azure-local/concepts/monitoring-overview">Overview of Azure Local monitoring</a></p>
+
+<h3 id="s-taking-a-node-out-and-putting-it-back">Taking a node out and putting it back</h3>
+
+<p>For planned work on one machine. This is a change, so get your elevation first and raise a
+  record.</p>
+
+<p class="pre-cap">Move the work off, then hold the storage</p>
+<pre><code>Suspend-ClusterNode -Name &lt;node&gt; -Drain
+Enable-StorageMaintenanceMode -InputObject (
+  Get-StorageFaultDomain -Type StorageScaleUnit |
+    Where-Object FriendlyName -eq '&lt;node&gt;' )</code></pre>
+
+<p>Draining moves the running workload to the other nodes. Storage maintenance mode tells Storage
+  Spaces Direct that the disks in that node are going away on purpose, so it does not start a full
+  repair for a node you are bringing straight back.</p>
+
+<p class="pre-cap">Reverse it in the same order</p>
+<pre><code>Disable-StorageMaintenanceMode -InputObject (
+  Get-StorageFaultDomain -Type StorageScaleUnit |
+    Where-Object FriendlyName -eq '&lt;node&gt;' )
+
+Resume-ClusterNode -Name &lt;node&gt; -Failback Immediate</code></pre>
+
+<p>Then watch <code>Get-StorageJob</code> until it is empty. The cluster is not finished when the
+  node says <code>Up</code>. It is finished when the repair work is done.</p>
+<div class="box warn">
+  <span class="lab">One node at a time</span>
+  <p>A four node cluster with a three way mirror tolerates one node out. Take a second one out
+    while the first is still repairing and you are into data availability, not maintenance.</p>
+</div>
+
+<h4>Moving a single machine instead</h4>
+
+<p>If you only need one workload off a host, move it rather than draining the node.</p>
+
+<pre><code>Move-ClusterVirtualMachineRole -Name &lt;vm&gt; -Node &lt;target&gt; -MigrationType Live</code></pre>
+
+<p>Live migration on this cluster completed in under twenty seconds with the workload staying up
+  throughout. Nothing above the machine notices.</p>
+
+<h3 id="s-when-the-graceful-path-is-refused">When every graceful path is refused</h3>
+
+<p>All of that assumes the cluster lets you drain the node. On a degraded volume it will not, and
+  the refusals stack into something that reads like a dead end.</p>
+
+<table>
+  <thead>
+    <tr><th>What you try</th><th>What comes back</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><code>Enable-StorageMaintenanceMode</code></td>
+      <td>Currently unsafe to perform the operation</td></tr>
+    <tr><td><code>Suspend-ClusterNode -Drain</code></td>
+      <td>A clustered space is in a degraded condition and the requested action cannot be
+        completed at this time</td></tr>
+    <tr><td><code>Suspend-ClusterNode -ForceDrain</code></td>
+      <td>Refused as well</td></tr>
+  </tbody>
+</table>
+
+<p>Every one of those is correct on its own. A suspended repair leaves the volume degraded, a
+  degraded volume makes the cluster refuse to pause the node, and a node that will not pause
+  cannot be drained. There is no override, and the absence of one is a deliberate position rather
+  than an oversight. The platform will not trade away redundancy on an already degraded volume,
+  and it cannot tell a laboratory from a hospital.</p>
+
+<p>The way out is <code>Stop-ClusterNode</code>. It is supported, and it is the blunter sibling of
+  pause and drain. Roles fail over instead of migrating live.</p>
+
+<pre><code>Stop-ClusterNode -Name &lt;node&gt;</code></pre>
+
+<p>On a four node cluster with capacity to spare, that was uneventful. Ownership of the shared
+  volumes moved cleanly and every running machine stayed online. The restart that followed also
+  cleared the suspended repair, which then finished on its own within minutes of the node
+  rejoining.</p>
+
+<div class="box warn">
+  <span class="lab">Run it on the node itself</span>
+  <p>Cluster cmdlets do not delegate. Calling <code>Stop-ClusterNode</code> against a remote node
+    from a third machine fails with <code>Access is denied</code>, because the credential cannot
+    make the second hop. Connect to the target and run it there.</p>
+</div>
+
+<div class="box">
+  <span class="lab">Read the refusal before reaching for a force flag</span>
+  <p>Each message above named its cause precisely. The instinct is to look for something stronger
+    to type. The information you need is already in the text.</p>
+</div>
+
+<h3 id="s-replacing-a-failed-disk">Replacing a failed disk</h3>
+
+<p>Find it first. This part is read only.</p>
+
+<pre><code>Get-PhysicalDisk | Where-Object HealthStatus -ne 'Healthy' |
+  Select-Object FriendlyName, SerialNumber, UniqueId, HealthStatus, OperationalStatus</code></pre>
+
+<div class="box warn">
+  <span class="lab">Identify a disk by unique id and serial, never by name or slot</span>
+  <p>Four disks in this pool reported an identical physical location string, and three of them
+    were healthy. Anyone pulling hardware based on that string had a one in four chance of
+    removing the right drive. Record <code>UniqueId</code> and the serial number, and have both
+    confirmed before anyone opens the rack.</p>
+</div>
+
+<p>Retiring and removing a disk is a change to the storage pool, and it is the highest risk thing
+  in this part. It needs elevation, a change record, and a healthy cluster everywhere else before
+  you start.</p>
+
+<pre><code>Set-PhysicalDisk -UniqueId &lt;id&gt; -Usage Retired
+Remove-PhysicalDisk -PhysicalDisks (Get-PhysicalDisk -UniqueId &lt;id&gt;)</code></pre>
+
+<p>Removing the disk starts a repair job that rebuilds its data elsewhere. Watch it to completion
+  before you do anything else, and resume it if it stalls.</p>
+
+<pre><code>Get-StorageJob
+Resume-StorageJob -Name &lt;job&gt;</code></pre>
+
+<div class="box warn">
+  <span class="lab">Replacement disks have to match</span>
+  <p>Storage Spaces Direct groups disks by size, media type and bus, and every node has to carry
+    the same number of data disks. A replacement that differs on any of those will either be
+    refused or will quietly unbalance the pool. Check what the other nodes hold before you order
+    anything.</p>
+</div>
+
+<h3 id="s-patching">Keeping the system current</h3>
+
+<p>Azure Local updates itself as one thing. The operating system, the agents and services, and on
+  supporting hardware the drivers and firmware as well, all arrive as a single validated solution
+  update applied by the orchestrator. It drains and returns each node in turn without being
+  asked.</p>
+
+<p>Which interface you use matters more than usual, because several familiar ones are explicitly
+  unsupported.</p>
+
+<div class="box warn">
+  <span class="lab">Do not use any of these to update Azure Local</span>
+  <p>The first boot configuration menu, Windows Admin Center, Azure Update Manager reached from
+    the Machines pane, the Updates pane on a machine resource, and manual runs of Cluster Aware
+    Updating. Each of them can install content from outside the validated set. This is the same
+    trap Part 3 describes at installation time, and it does not stop being a trap once the cluster
+    is built.</p>
+</div>
+
+<p class="pre-cap">Check health and the current version first</p>
+<pre><code>Get-SolutionUpdateEnvironment</code></pre>
+
+<p>Read <code>CurrentVersion</code> and <code>HealthState</code>. Anything other than success in
+  the health state is the thing to resolve before going any further.</p>
+
+<p class="pre-cap">Find what is available</p>
+<pre><code>Get-SolutionUpdate | Where-Object { $_.State -like "Ready*" } |
+  Format-List DisplayName, Version, ResourceId, State, PackageType</code></pre>
+
+<p class="pre-cap">Download and run the readiness checks without installing anything</p>
+<pre><code>Get-SolutionUpdate -Id &lt;ResourceId&gt; | Start-SolutionUpdate -PrepareOnly</code></pre>
+
+<p>This is the step worth taking. It downloads the package and runs the health checks, leaving the
+  update at <code>ReadyToInstall</code>, so a maintenance window opens with the checks already
+  passed instead of spending its first stretch discovering a problem.</p>
+
+<p class="pre-cap">Install, then follow it</p>
+<pre><code>Get-SolutionUpdate -Id &lt;ResourceId&gt; | Start-SolutionUpdate
+
+Get-SolutionUpdate -Id &lt;ResourceId&gt; |
+  Format-Table Version, State, UpdateStateProperties, HealthState</code></pre>
+
+<p>The states run Downloading, Preparing, HealthChecking, Installing, Installed. Nodes reboot
+  during the run, so a session opened against one of them will drop partway. Track it from the
+  portal, or connect to the last node in the cluster, which is the one that reboots last.</p>
+
+<p class="pre-cap">Confirm afterwards</p>
+<pre><code>Get-SolutionUpdateEnvironment | Format-Table State, CurrentVersion</code></pre>
+
+<p>Microsoft publishes approximate durations: roughly twenty minutes of health checks and about
+  six hours to install on a four node system. Size the maintenance window from that figure rather
+  than from how long a Windows update usually takes.</p>
+
+<div class="box warn">
+  <span class="lab">Two deadlines that are easy to miss</span>
+  <p><b>Arc resource bridge needs a solution update inside a year.</b> The wording is direct: it
+    "requires solution updates to be applied within one year. This is critical to keep
+    certificates valid and the Azure Local VM functionality working." Let it lapse and the
+    machines stop being manageable.</p>
+  <p><b>Support requires staying within six months of the most recent release.</b> That is the
+    servicing policy, not a recommendation.</p>
+</div>
+
+<div class="box">
+  <span class="lab">Your workloads are not included</span>
+  <p>Microsoft is explicit that "customer workloads aren't covered by this update solution". The
+    platform patches itself and leaves the guests alone. Whatever patches the operating systems
+    inside your machines is a separate thing you own, and so is whatever backs them up.</p>
+</div>
+
+<div class="box todo">
+  <span class="lab">Not exercised on this cluster</span>
+  <p>This project never ran a full update cycle. The commands and constraints above are quoted
+    from the product documentation rather than written from experience. Check them against current
+    documentation, and rehearse on something you can afford to break before running this on a
+    system people depend on.</p>
+</div>
+
+<p class="src"><b>Source</b>
+  <a href="https://learn.microsoft.com/azure/azure-local/update/about-updates-23h2">About updates for Azure Local</a>,
+  <a href="https://learn.microsoft.com/azure/azure-local/update/update-via-powershell-23h2">Update Azure Local via PowerShell</a></p>
+
+<h3 id="s-adding-a-node">Adding a node</h3>
+
+<p>Scaling out is a supported operation with its own orchestration, run by the same lifecycle
+  manager that handles everything else. An instance reaches sixteen nodes.</p>
+
+<p>Prepare the new machine exactly as Part 3 describes, register it with Arc using the same
+  subscription, resource group and region as the others, then add it.</p>
+
+<pre><code>$Cred = Get-Credential
+Add-Server -Name "&lt;new-node&gt;" -HostIpv4 "&lt;ip&gt;" -LocalAdminCredential $Cred</code></pre>
+
+<p>Keep the operation id it returns. Progress is tracked with it, and so is any failure.</p>
+
+<pre><code>Start-MonitoringActionplanInstanceToComplete -ActionPlanInstanceID &lt;id&gt;</code></pre>
+
+<p>Hardware has to match what is already there, and the checks are not equally strict.</p>
+
+<table>
+  <thead>
+    <tr><th>What is checked</th><th>If the new machine falls short</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Data drive count</td><td>Blocked. This one is an error and the operation stops</td></tr>
+    <tr><td>CPU cores</td><td>Warned, and the operation is allowed to continue</td></tr>
+    <tr><td>Memory</td><td>Warned, and the operation is allowed to continue</td></tr>
+  </tbody>
+</table>
+
+<p>Drive count being the hard gate is the same constraint Part 1 raises about buying machines. The
+  symmetry chosen at purchase is the symmetry you are still held to years later, which is why it
+  belongs in the original order.</p>
+
+<div class="box warn">
+  <span class="lab">Three things to know before planning around this</span>
+  <p><b>One node at a time.</b> Add several sequentially if you need to, which also means the
+    storage pool rebalances only once.</p>
+  <p><b>Rebalancing can run for days.</b> It is a low priority background task and it does not
+    disturb workloads, but the cluster is not finished when the new node reports as joined.</p>
+  <p><b>Nodes cannot be permanently removed.</b> The documentation states plainly that "it isn't
+    possible to permanently remove a node from a system". Scaling out is a one way door.</p>
+</div>
+
+<p>Two crossings change the shape of the cluster underneath you. One node to two brings a two way
+  mirror and requires a witness. Two to three converts the resiliency to a three way mirror.</p>
+
+<div class="box todo">
+  <span class="lab">Not exercised on this cluster</span>
+  <p>This cluster was built with four nodes and never grew. The procedure and the constraints come
+    from the product documentation.</p>
+</div>
+
+<p class="src"><b>Source</b>
+  <a href="https://learn.microsoft.com/azure/azure-local/manage/add-server">Manage capacity by adding a node</a></p>
+
+<h3 id="s-diagnostics-for-support">Collecting diagnostics for support</h3>
+
+<p>When a case goes to Microsoft they will ask for logs, and one cmdlet gathers and uploads them
+  from any node in the cluster.</p>
+
+<pre><code>Send-DiagnosticData -FromDate (Get-Date).AddHours(-2) -ToDate (Get-Date)</code></pre>
+
+<p>With no parameters it collects the previous hour from every node. Narrow the window.
+  Collection time follows the range, anything beyond twenty four hours is not
+  supported, and only one collection can run at a time.</p>
+
+<p>The output carries the identifiers support needs, and the correlation id is the one they will
+  ask for by name. Earlier collections are listed with <code>Get-LogCollectionHistory</code>.</p>
+
+<p>Filtering by role narrows it further once you know roughly where the problem sits. The four
+  worth remembering are <code>ECE</code> for deployment, update and add node workflows,
+  <code>HostNetwork</code> for Network ATC, <code>MOC_ARB</code> for the Arc resource bridge, and
+  <code>URP</code> for the update services.</p>
+
+<pre><code>Send-DiagnosticData -FilterByRole ECE, HostNetwork -CollectSddc $false</code></pre>
+
+<p>If the cluster cannot reach Azure, the same cmdlet writes to a file share with
+  <code>-SaveToPath</code> instead, and the logs go up later from a machine that does have a
+  route.</p>
+
+<p class="src"><b>Source</b>
+  <a href="https://learn.microsoft.com/azure/azure-local/manage/collect-logs">Collect diagnostic logs for Azure Local</a></p>
+
+<h3 id="s-getting-your-access-back">Getting your access back</h3>
+
+<p>Privileged roles are time limited, so the first thing that will stop you is not a cluster
+  problem. Activate before the change window rather than at the start of it, because Azure
+  resource providers can take several minutes to honour a newly activated role. An operation that
+  fails with an authorization error immediately after activation will often succeed a few minutes
+  later without you changing anything.</p>
+
+<p>Confirm it worked by running one narrow read only operation before you begin the real work.</p>
+
+<h3 id="s-when-something-is-wrong">When something is wrong</h3>
+
+<p>In order, and stop as soon as one of them explains it.</p>
+
+<ol>
+  <li><code>Get-ClusterNode</code>. A node that is down or paused explains most things
+    underneath it.</li>
+  <li><code>Get-StorageJob</code>. If the cluster is repairing itself, the performance complaint
+    you were called about may resolve on its own.</li>
+  <li><code>Get-VirtualDisk</code>. Degraded with no job running is worth escalating.</li>
+  <li><code>Get-NetIntentStatus</code>. Network configuration that failed to apply looks like
+    everything else failing.</li>
+  <li>Resource health in the Azure portal, for the cluster resource and the Arc connection,
+    which is the only place that shows you problems on the Azure side of the boundary.</li>
+</ol>
+
+<div class="box">
+  <span class="lab">What to hand over when you escalate</span>
+  <p>The output of the six health commands, the time it started, and what changed recently.
+    Whoever picks it up will ask for exactly that. If the case is going to Microsoft, run a
+    diagnostic collection across the window as well and quote the correlation id it returns.</p>
+</div>
+
+<p class="see"><b>See it run</b>
+  <a href="../capstone/prototype/v2/index.html">Movement 08, a machine leaves and the fabric
+  heals</a>, for what a node loss and the repair that follows look like from above</p>
+
+<!-- ============================================================ PART 7 -->
+<h2 class="part" id="ref">Part 7. Command reference</h2>
+
+<p>Every command in this guide, by the task it performs. The part column says where the context
+  for it sits.</p>
+
+<h3 id="s-reference-prepare">Preparing a machine</h3>
+
+<table>
+  <thead>
+    <tr><th>Task</th><th>Command</th><th>Part</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Confirm Secure Boot is on</td><td><code>Confirm-SecureBootUEFI</code></td><td>3</td></tr>
+    <tr><td>Confirm the TPM is present and ready</td><td><code>Get-Tpm</code></td><td>3</td></tr>
+    <tr><td>Confirm virtualization is enabled</td>
+      <td><code>(Get-ComputerInfo).HyperVRequirementVirtualizationFirmwareEnabled</code></td><td>3</td></tr>
+    <tr><td>Find inbox drivers on network adapters</td>
+      <td><code>Get-NetAdapter | Select-Object Name, InterfaceDescription, DriverProvider, DriverVersion</code></td><td>3</td></tr>
+    <tr><td>Check drives are poolable and not remapped</td>
+      <td><code>Get-PhysicalDisk | Select-Object FriendlyName, BusType, MediaType, Size, CanPool</code></td><td>1</td></tr>
+  </tbody>
+</table>
+
+<h3 id="s-reference-build">Building the cluster</h3>
+
+<table>
+  <thead>
+    <tr><th>Task</th><th>Command</th><th>Part</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Map an adapter to the switch and port it reaches</td>
+      <td><code>pktmon filter add LLDP --ethertype 0x88CC</code> then <code>pktmon start --capture</code></td><td>4</td></tr>
+    <tr><td>Rename an adapter to match the network intent</td>
+      <td><code>Rename-NetAdapter -Name &lt;current&gt; -NewName Port3</code></td><td>4</td></tr>
+    <tr><td>Read validation and deployment progress</td>
+      <td><code>GET .../clusters/&lt;cluster&gt;/deploymentSettings/default?api-version=2024-04-01</code></td><td>4</td></tr>
+  </tbody>
+</table>
+
+<h3 id="s-reference-workloads">Running workloads</h3>
+
+<table>
+  <thead>
+    <tr><th>Task</th><th>Command</th><th>Part</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Register an image in the gallery</td>
+      <td><code>az stack-hci-vm image create</code></td><td>5</td></tr>
+    <tr><td>Create a network interface for a machine</td>
+      <td><code>az stack-hci-vm network nic create --subnet-id &lt;logical-network&gt;</code></td><td>5</td></tr>
+    <tr><td>Create a machine from a gallery image</td>
+      <td><code>az stack-hci-vm create --image &lt;image&gt; --nics &lt;nic&gt;</code></td><td>5</td></tr>
+    <tr><td>Read power state and host node</td>
+      <td><code>az stack-hci-vm show --query properties.status.powerState</code></td><td>5</td></tr>
+    <tr><td>Stop a guest that has no integration services</td>
+      <td><code>az stack-hci-vm stop --skip-shutdown</code></td><td>5</td></tr>
+    <tr><td>Create a Kubernetes cluster with autoscaling</td>
+      <td><code>az aksarc create --enable-cluster-autoscaler --min-count &lt;n&gt; --max-count &lt;n&gt;</code></td><td>5</td></tr>
+  </tbody>
+</table>
+
+<h3 id="s-reference-operate">Operating the cluster</h3>
+
+<table>
+  <thead>
+    <tr><th>Task</th><th>Command</th><th>Change?</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Node state</td><td><code>Get-ClusterNode</code></td><td>Read only</td></tr>
+    <tr><td>Storage Spaces Direct state</td><td><code>Get-ClusterStorageSpacesDirect</code></td><td>Read only</td></tr>
+    <tr><td>Pool state</td><td><code>Get-StoragePool</code></td><td>Read only</td></tr>
+    <tr><td>Volume health</td><td><code>Get-VirtualDisk</code></td><td>Read only</td></tr>
+    <tr><td>Repair work in flight</td><td><code>Get-StorageJob</code></td><td>Read only</td></tr>
+    <tr><td>Network intent applied</td><td><code>Get-NetIntentStatus</code></td><td>Read only</td></tr>
+    <tr><td>Find an unhealthy disk</td>
+      <td><code>Get-PhysicalDisk | Where-Object HealthStatus -ne 'Healthy'</code></td><td>Read only</td></tr>
+    <tr><td>Current solution version and health</td>
+      <td><code>Get-SolutionUpdateEnvironment</code></td><td>Read only</td></tr>
+    <tr><td>List available solution updates</td>
+      <td><code>Get-SolutionUpdate</code></td><td>Read only</td></tr>
+    <tr><td>Collect and send diagnostics to Microsoft</td>
+      <td><code>Send-DiagnosticData -FromDate &lt;from&gt; -ToDate &lt;to&gt;</code></td><td>Read only</td></tr>
+    <tr><td>List earlier diagnostic collections</td>
+      <td><code>Get-LogCollectionHistory</code></td><td>Read only</td></tr>
+    <tr><td>Drain a node for maintenance</td>
+      <td><code>Suspend-ClusterNode -Name &lt;node&gt; -Drain</code></td><td><b>Change</b></td></tr>
+    <tr><td>Hold its storage during maintenance</td>
+      <td><code>Enable-StorageMaintenanceMode</code></td><td><b>Change</b></td></tr>
+    <tr><td>Release storage after maintenance</td>
+      <td><code>Disable-StorageMaintenanceMode</code></td><td><b>Change</b></td></tr>
+    <tr><td>Return a node to service</td>
+      <td><code>Resume-ClusterNode -Name &lt;node&gt; -Failback Immediate</code></td><td><b>Change</b></td></tr>
+    <tr><td>Force a node down when drain is refused</td>
+      <td><code>Stop-ClusterNode -Name &lt;node&gt;</code>, run on that node</td><td><b>Change</b></td></tr>
+    <tr><td>Move one machine to another host</td>
+      <td><code>Move-ClusterVirtualMachineRole -Name &lt;vm&gt; -Node &lt;target&gt; -MigrationType Live</code></td><td><b>Change</b></td></tr>
+    <tr><td>Retire a failed disk</td>
+      <td><code>Set-PhysicalDisk -UniqueId &lt;id&gt; -Usage Retired</code></td><td><b>Change</b></td></tr>
+    <tr><td>Remove a retired disk from the pool</td>
+      <td><code>Remove-PhysicalDisk -PhysicalDisks (Get-PhysicalDisk -UniqueId &lt;id&gt;)</code></td><td><b>Change</b></td></tr>
+    <tr><td>Restart a stalled repair</td><td><code>Resume-StorageJob -Name &lt;job&gt;</code></td><td><b>Change</b></td></tr>
+    <tr><td>Stage an update and run its readiness checks</td>
+      <td><code>Start-SolutionUpdate -PrepareOnly</code></td><td><b>Change</b></td></tr>
+    <tr><td>Install a solution update</td>
+      <td><code>Start-SolutionUpdate</code></td><td><b>Change</b></td></tr>
+    <tr><td>Add a node to the cluster</td>
+      <td><code>Add-Server -Name &lt;node&gt; -HostIpv4 &lt;ip&gt; -LocalAdminCredential &lt;cred&gt;</code></td><td><b>Change</b></td></tr>
+  </tbody>
+</table>
+
+<div class="box warn">
+  <span class="lab">Anything marked as a change needs a record</span>
+  <p>The read only commands are safe at the lowest level of access that reaches the cluster.
+    Everything in the change column needs elevation, a change record, and a healthy cluster
+    everywhere else before you start.</p>
+</div>
+
+</div>
+</body>
+</html>

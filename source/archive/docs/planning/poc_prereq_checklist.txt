@@ -1,0 +1,582 @@
+========================================================================
+  AZURE LOCAL POC // PREREQUISITE CHECKLIST
+========================================================================
+  Subscription: contoso-lab-sub
+  Resource group: rg-azlocal-poc-001 (westus3)
+  Target:       6x Dell rack nodes in lab rack rack-01
+  Pilot scope:  1 system first (AZL-NODE-01), then expand to remaining 5
+
+  Legend:
+    [PLATFORM]   platform team, remote architects
+    [DC-TECH] datacenter technician at the rack (see
+                smart_hands_node01.txt for the per-node script)
+    [ONSITE]    Requires physical access to hardware
+    [NETWORK]   Requires Networking team
+    [DIRECTORY]        Requires Active Directory / Domain team
+    [DC-TECH]       Requires datacenter technician / hardware role
+    [SECURITY]  Requires Security team
+
+  Checkbox states:
+    [ ]  Not started
+    [~]  Assumed done, not verified by platform team
+    [x]  Confirmed complete
+    [-]  Out of scope for this POC (preserved for historical context)
+
+  Active Directory: LOCKED to corp.example.com.
+    lab is in Portland (NA region); existing lab.example.com lab gear is
+    NA-affiliated. Confirmed via planning discussion 2026-05-26.
+
+  VPN: CORP-VPN is the working VPN for this POC. Confirmed
+    2026-05-26 via fake-port probe: reaches the KVM at
+    kvm-01.lab.example.com:443, does NOT reach iDRAC; does NOT lie
+    on TCP probes (unlike GSA, which returns false-positive 'open' on
+    every port). KVM reachability is all we need for imaging.
+
+  GSA gotcha (do not lose this lesson): the 10.10.x.x address space is
+    reused across multiple isolated L3 planes. DNS resolves the FQDNs
+    over GSA, but direct IPv4 traffic from GSA does NOT route to lab
+    nodes - it lands on unrelated corp hosts at the same address. Use
+    CORP-VPN + FQDN + protocol handshake (Test-WSMan, SSH
+    banner) for honest reachability checks.
+
+  Hardware spec lock (2026-06-11): the original Phase 0 BIOS spec
+    assumed a server-class SAS HBA that does not exist in the Dell
+    Precision 7960 Rack chassis, and the original "drive symmetry"
+    requirement was buried as a sub-comment. Both got missed. The
+    storage build-out is now an explicit checkbox set (Phase 0a below)
+    and the BIOS state lives in its own reference file. See:
+      - decisions/0003-storage-spec-lock.md   (the call + evidence)
+      - bios_ideal_state.txt                  (per-node BIOS settings)
+
+========================================================================
+  PHASE 0a // STORAGE + RAM BUILD-OUT (PROCUREMENT-DRIVEN)
+========================================================================
+  Owner: [PLATFORM] procures, [DC-TECH] installs, [PLATFORM] verifies
+  Scope: 4 active nodes AZL-NODE-01..04. Nodes 05/06 deferred.
+  Blocking: cluster validator (Invoke-AzStackHciHardwareValidation)
+    will keep failing the data-disk check until this phase completes.
+  Cross-ref: decisions/0003-storage-spec-lock.md   (rationale)
+             bios_ideal_state.txt                  (BIOS target state)
+
+  [x] [PLATFORM] Order storage adapter cards
+        6x ASUS Hyper M.2 X16 Gen 4 (B084HMHGSP, ~$80 ea)
+        1 per active node + 2 spares.
+      TODO if procurement evidence is needed later: paste exact website,
+      seller, order URL, rating/review count, and useful review quotes into
+      decisions/0003-storage-spec-lock.md section O5.
+
+  [x] [PLATFORM] Order data drives
+        8x KIOXIA KXG80ZNV512G (Dell OEM 0WGWK4, 512 GB M.2 2280
+        NVMe Gen 4). 2 per active node.
+      TODO if procurement evidence is needed later: paste exact website,
+      seller, order URL, rating/review count, and useful review quotes into
+      decisions/0003-storage-spec-lock.md section O5.
+
+  [-] [PLATFORM] Track RAM validation risk
+      Current direction as of 2026-06-18: do not assume additional RAM
+      is available for this POC. Each node reports 31.5 GB visible
+      (Microsoft floor is 32 GB), so this remains a validation risk,
+      not a procurement action. Proceed with storage install first,
+      re-run Invoke-HardwareValidator, and escalate only if the Azure
+      Local validator explicitly blocks on memory.
+
+  [ ] [DC-TECH] Receive storage parts; stage in lab.
+
+  [ ] [DC-TECH] Per node (AZL-NODE-01..04), in ONE pass with the
+      chassis open:
+        - Seat 2x KIOXIA M.2 drives onto the ASUS Hyper M.2 card
+          (sockets M2_1 + M2_2, keep heatsinks attached).
+        - Install ASUS card in Slot 6 (x16). Do NOT use Slot 4 or 5;
+          those hold the Mellanox 100GbE NICs.
+        - Reseat chassis; power on; F2 into BIOS.
+        - Apply the settings in bios_ideal_state.txt (BIOS Settings
+          Table). Hot items are #1, #2, #3, #4, #5 -- the rest are
+          verify-only.
+        - Save + exit; let the node reboot to the existing OS.
+
+  [ ] [PLATFORM] Per node, post-boot verification via WinRM. See
+      bios_ideal_state.txt "POST-BOOT VERIFICATION" for the full
+      command set. Acceptance per node:
+        - 2 rows of Get-PhysicalDisk with BusType=NVMe, MediaType=SSD,
+          CanPool=True, ~512 GB each.
+        - Total visible RAM recorded. Current expectation is 31.5 GB;
+          acceptable only if the Azure Local validator does not block.
+        - (Get-ComputerInfo).HyperVisorPresent = True.
+
+  [ ] [PLATFORM] Re-run the cluster hardware validator across the 4
+      active nodes:
+        .\scripts\Invoke-HardwareValidator.ps1 -NodeNumbers @(1,2,3,4)
+      Acceptance: zero CRITICAL failures on the data-disk check.
+
+  Deferred (not blocking the 4-node POC):
+    AZL-NODE-05 and -06 are NOT being built out with data drives.
+    Keep the 2 spare ASUS cards in inventory against the day those
+    nodes are needed.
+
+========================================================================
+  PHASE 0b // NETWORK PRE-FLIGHT (per node) -- THE MISSING GATE
+========================================================================
+  Owner: [PLATFORM] via WinRM. No smart-hands needed for the enable step.
+  Why this phase exists: the CRITICAL AzStackHci_Hardware_Test_NetAdapter
+    failure was caught LATE because storage had a pre-flight gate (0a) and
+    network did not. The Mellanox ConnectX-5 ports were merely DISABLED
+    (PnP problem 22), not missing. This phase makes the network check a
+    GATE you read BEFORE committing hardware/time, mirroring Phase 0a.
+    Cross-ref: decisions/0010-mellanox-nic-disabled-not-missing.md
+  Blocking: the deployment cannot pass validation until >=1 physical NIC
+    per node reports NdisMedium=0, Status=Up, NdisPhysicalMedium=14, non-USB.
+
+  [ ] [PLATFORM] Per node, run the pre-flight gate (report-only first):
+        .\scripts\Test-NetworkPreflight.ps1 -NodeFqdn <node>.lab.example.com
+      Acceptance: "GATE: PASS" with >=1 NIC at PhysMedium=14 / Up.
+
+  [ ] [PLATFORM] If a node's Mellanox ports show as disabled (GATE: FAIL +
+      "still disabled"), enable them (free, software-only, reversible):
+        .\scripts\Test-NetworkPreflight.ps1 -NodeFqdn <node>.lab.example.com -EnableDisabled
+      Re-run report-only to confirm PASS.
+
+  [ ] [PLATFORM] Record, per node, whether the passing NIC runs the INBOX
+      driver (DriverProvider=Microsoft). Inbox PASSES this hardware gate but
+      is DOCUMENTED as unsupported for DEPLOY (MS Learn host-network-
+      requirements) -> tracked as the WinOF-2 swap, a separate deploy step,
+      NOT a blocker to this gate. See poc_risk_register.txt items #4/#10.
+
+  Verified 2026-07-10: nodes 01 and 02 both PASS (Port3/Port4, 100 Gbps,
+  PhysMedium=14). Nodes 03-06 to be run as they return from the 3x-NVMe build.
+
+========================================================================
+  PHASE 0 // PHYSICAL, BIOS, AND OS IMAGING (PER NODE)
+========================================================================
+  Owner: [DC-TECH] driven, [PLATFORM] verifies via WinRM
+  Approach: datacenter technician runs smart_hands_node01.txt at
+    the KVM. The platform team does NOT need to be onsite. The platform team takes over
+    via WinRM/PowerShell after handback.
+  Per-node script: smart_hands_node01.txt (copy and adapt for nodes
+    02-06; the only differences are hostname and IP).
+
+  KVM patching status (2026-05-26):
+    AZL-NODE-01  KVM-connected  -> can image now
+    AZL-NODE-02  KVM-connected  -> can image now
+    AZL-NODE-03  KVM-connected  -> can image now
+    AZL-NODE-04  KVM port pending -> blocked on rack patch
+    AZL-NODE-05  KVM port pending -> blocked on rack patch
+    AZL-NODE-06  KVM port pending -> blocked on rack patch
+
+  [~] [DC-TECH] [ONSITE] All 6 nodes racked, cabled, powered on
+      ASSUMED DONE. iDRAC addresses received but iDRAC is unlicensed
+      and not used by this POC (smart-hands + KVM covers imaging).
+
+  [~] [DC-TECH] [ONSITE] iDRAC/BMC addresses recorded for reference only
+      (not used by this POC):
+        azl-node-01adm.lab.example.com  2001:db8:90:f087:1d::c12:1
+        azl-node-02adm.lab.example.com  2001:db8:90:f087:1d::c12:2
+        azl-node-03adm.lab.example.com  2001:db8:90:f087:1d::c12:3
+        azl-node-04adm.lab.example.com  2001:db8:90:f087:1d::c12:4
+        azl-node-05adm.lab.example.com  2001:db8:90:f087:1d::c12:5
+        azl-node-06adm.lab.example.com  2001:db8:90:f087:1d::c12:6
+      CORP-VPN does NOT reach these. iDRAC license not
+      acquired. Path is parked.
+
+      OS plane FQDNs / IPv4 (used post-imaging):
+        azl-node-01.lab.example.com  10.10.1.187
+        azl-node-02.lab.example.com  10.10.1.188
+        azl-node-03.lab.example.com  10.10.1.189
+        azl-node-04.lab.example.com  10.10.1.190
+        azl-node-05.lab.example.com  10.10.1.191
+        azl-node-06.lab.example.com  10.10.1.192
+
+  --- Per-node smart-hands work (do this for AZL-NODE-01 first) ---
+
+  Known gotcha (learned 2026-05-26 on node 01): the Azure Stack HCI OS
+  installer does not include the Dell HBA driver. At the partition
+  selection screen the installer reports no drives. Fix: load the
+  matching Windows Server 2022/2025 driver for the chassis's HBA
+  (likely HBA355 / HBA350 / HBA330; check the service tag) via
+  "Load driver" before continuing. Once that driver package is in
+  hand, reuse it for nodes 02-06 (smart hands will retain a copy).
+
+  [ ] [PLATFORM] Provide smart-hands with the Azure Local OS ISO,
+      local admin password, and (if known) static IP/mask/gateway
+      for the node.
+
+  [ ] [DC-TECH] Obtain the Dell HBA driver for this chassis once,
+      store on the bench USB, reuse on every node.
+
+  [ ] [DC-TECH] Run smart_hands_node01.txt against AZL-NODE-01:
+        - BIOS: apply the full settings table from bios_ideal_state.txt
+          (canonical reference; replaces the inline "HBA / VT-x / VT-d
+          / XD bit" summary that used to live here and that missed
+          NVMe Mode + VROC + Slot 6 Bifurcation -- see ADR 0003).
+        - Mount OS ISO via KVM virtual media
+        - Install Azure Stack HCI OS
+        - Set local admin password
+        - Set hostname AZL-NODE-01
+        - Configure network (static or DHCP)
+        - Enable Remote Management (WinRM) + RDP
+
+  [ ] [PLATFORM] Verify handback via WinRM from CORP-VPN:
+        Test-WSMan -ComputerName azl-node-01.lab.example.com
+        Enter-PSSession -ComputerName azl-node-01.lab.example.com `
+          -Credential (Get-Credential)
+
+  [ ] [PLATFORM] Capture hardware inventory remotely (no smart-hands
+      time needed - run from your laptop via WinRM):
+        $s = New-PSSession -ComputerName azl-node-01.lab.example.com `
+               -Credential (Get-Credential)
+        Invoke-Command -Session $s -ScriptBlock {
+          Get-ComputerInfo | Select-Object CsName, CsManufacturer, `
+            CsModel, CsTotalPhysicalMemory, OsVersion, OsBuildNumber
+          Get-CimInstance Win32_Processor | Select-Object Name, `
+            NumberOfCores, NumberOfLogicalProcessors
+          Get-PhysicalDisk | Select-Object DeviceId, FriendlyName, `
+            MediaType, BusType, Size, HealthStatus
+          Get-NetAdapter | Where-Object Status -eq 'Up' | `
+            Select-Object Name, InterfaceDescription, LinkSpeed, MacAddress
+        }
+
+  [ ] [PLATFORM] Repeat for AZL-NODE-02 and -03 once node 01 is
+      proven (same script, different hostname/IP).
+
+  [ ] [DC-TECH] Patch KVM cables to AZL-NODE-04/05/06
+      Submit alongside the node-01 smart-hands ticket so the patch
+      and the imaging can be scheduled together.
+
+  Deliverable from smart hands per node:
+    Confirmation of OS install
+    Confirmation of local admin password set
+    Assigned IP address (especially if DHCP)
+    Any anomalies
+
+========================================================================
+  PHASE 1 // NETWORK PREPARATION
+========================================================================
+  Owner: [NETWORK]
+  Topology: single converged intent on a single subnet (no jumbo,
+    no RDMA, no DCB, no storage VLAN separation). Decision recorded
+    in the POC plan under poc_network.
+  External asks consolidated in docs/prerequisites.md.
+  Wizard-question crosswalk in runbooks/deployment-wizard-answers.txt.
+
+  [ ] [NETWORK] Confirm CIDR + default gateway for 10.10.1.187-192
+      Nodes already have IPs assigned; we need the subnet metadata
+      to enter into the deploy wizard.
+
+  [ ] [NETWORK] Reserve ~7 additional IPs in the same subnet for
+      Azure Local fabric: 1 cluster object, 1 Arc Resource Bridge,
+      4 AKS-on-Local control-plane VIPs, 1 storage replica endpoint.
+      If the existing subnet is too small, allocate an adjacent /29
+      or a new /27.
+      Reserved range must NOT overlap 10.96.0.0/12 or 10.244.0.0/16
+      (Kubernetes service/pod CIDRs).
+
+  [-] [NETWORK] Storage VLANs (711/712)
+      OUT OF SCOPE. Single converged intent topology; no separate
+      storage VLAN. Preserved here so the choice is visible.
+
+  [ ] [NETWORK] Confirm outbound HTTPS 443 allowlist covers Azure
+      Local endpoints:
+        https://learn.microsoft.com/en-us/azure/azure-local/concepts/firewall-requirements
+      The lab site already supports Azure-connected workloads, so this is
+      most likely already in place. Need confirmation, not change.
+
+  [ ] [NETWORK] NTP source
+      Either an internal NTP server IP, or confirmation that
+      time.windows.com (or pool.ntp.org) is reachable from the
+      cluster subnet.
+
+  [ ] [NETWORK] Proxy posture
+      Does lab egress traverse an HTTP proxy? If yes: proxy URL +
+      bypass list. If no: confirmation. Azure Local deploy needs
+      proxy env vars set if yes.
+
+  [POST] [PLATFORM] DNS server IPs
+      No external ask needed. Discover post-imaging on node 01:
+        Get-DnsClientServerAddress -AddressFamily IPv4
+      Any working corp resolver fits (resolves NA AD + lab.example.com
+      + public).
+
+  Deliverable from Networking:
+    Subnet mask + gateway for 10.10.1.187-192
+    Block of ~7 reserved IPs (in-subnet or adjacent)
+    Outbound 443 confirmation
+    NTP IP (or 'time.windows.com permitted')
+    Proxy answer (yes + details, or no)
+
+========================================================================
+  PHASE 2 // ACTIVE DIRECTORY PREPARATION
+========================================================================
+  Owner: [DIRECTORY] (DRI TBD - request from directory admins)
+  Domain: corp.example.com (LOCKED, see header note)
+
+  [ ] [PLATFORM] Identify the directory owner for the corporate domain
+      Ask the directory admins for the contact when filing the RBAC request.
+
+  [ ] [DIRECTORY] Create a dedicated Organizational Unit for Azure Local objects
+      Suggested DN:
+        OU=AzureLocal-POC,OU=Site01,DC=corp,DC=example,DC=com
+      OU path must not contain: & " ' < >
+      OU must not be at the top level of the domain.
+
+  [ ] [DIRECTORY] Create a deployment service account in that OU
+      Used by the Azure Local deploy wizard for AD object creation.
+      Password: 14+ characters, mixed case, number, special character.
+      Account name must not be "admin" or "administrator".
+      Account needs "Create Computer Objects" delegated on the OU.
+
+  [ ] [PLATFORM] [DIRECTORY] Do NOT pre-join nodes to the domain
+      The Azure Local deploy wizard handles domain join. Pre-joined
+      machines fail validation. Smart-hands SOP (Phase 0) explicitly
+      does NOT join the domain.
+
+  Deliverable from AD:
+    OU distinguished name
+    Deployment service account username
+    Deployment service account password (securely transferred)
+    Confirmation: domain is corp.example.com
+
+========================================================================
+  PHASE 3 // OS IMAGING
+========================================================================
+  MERGED INTO PHASE 0. Imaging is now per-node smart-hands work
+  driven by smart_hands_node01.txt. This section retained as a
+  cross-reference; checklist items moved to Phase 0.
+
+  Phase 3 acceptance: all imaged nodes reachable by platform team via
+  WinRM/PowerShell on CORP-VPN, with identical OS version.
+  Verify across nodes once 2+ are imaged:
+    Get-PSSession -ComputerName azl-node-01,azl-node-02 `
+      -Credential $cred |
+      Invoke-Command -ScriptBlock { Get-ComputerInfo |
+        Select OsVersion, OsBuildNumber }
+  All values must match exactly.
+
+========================================================================
+  PHASE 4 // AZURE PREPARATION
+========================================================================
+  Owner: [PLATFORM]
+  Most of this is already done; remaining items are external asks.
+
+  [x] [PLATFORM] Register required resource providers
+      All 7 done (verified 2026-05-21 / pre-deploy):
+        Microsoft.AzureStackHCI
+        Microsoft.Kubernetes
+        Microsoft.KubernetesConfiguration
+        Microsoft.ExtendedLocation
+        Microsoft.ResourceConnector
+        Microsoft.HybridContainerService
+        Microsoft.Attestation
+      Verify any time:
+        az provider show --namespace Microsoft.AzureStackHCI `
+          --query registrationState -o tsv
+
+  [x] [PLATFORM] Create the POC resource group
+      DONE. rg-azlocal-poc-001 in westus3 with the full
+      organizational tag schema. Three cost-tracking tags are pending
+      placeholders - will be updated when
+      directory admins confirms values.
+
+  [x] [PLATFORM] Deploy observability + cost guardrails
+      DONE via infra/main.bicep:
+        azloc-law-001  (Log Analytics, 5GB/day cap)
+        azloc-ag-001   (Action Group)
+        azloc-budget-001 (consumption budget)
+      Verify any time:
+        az resource list -g rg-azlocal-poc-001 -o table
+
+  [ ] [DIRECTORY] RBAC for deploy account
+      3 PIM-eligible roles needed (see docs/prerequisites.md):
+        Azure Stack HCI Administrator @ subscription scope
+        Reader @ subscription scope
+        User Access Administrator @ RG scope (rg-azlocal-poc-001)
+      UAA at RG scope (not subscription) is the wedge that lets us
+      self-assign the remaining 5 deployment roles inside the RG.
+      Status: pending directory admins approval (May 2026).
+
+  [ ] [PLATFORM] After UAA grant, self-assign the 5 RG-scoped roles
+      Per Microsoft Learn deployment-arc-register-server-permissions:
+        Key Vault Data Access Administrator
+        Key Vault Secrets Officer
+        Key Vault Contributor
+        Storage Account Contributor
+        Azure Connected Machine Onboarding
+        Azure Connected Machine Resource Administrator
+      Use:
+        az role assignment create --assignee labadmin@example.com `
+          --role "<role name>" `
+          --scope /subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-azlocal-poc-001
+
+  [HAVE] [PLATFORM] Key Vault strategy
+      DECIDED: let the deploy wizard auto-create the cluster's KV
+      during cluster deployment. Wizard names it consistently and
+      grants the cluster managed identity access automatically.
+      Pre-creation is unnecessary for a POC.
+      Wizard-assigned name (see runbooks/deployment-wizard-answers.txt):
+        azloccl001kv
+
+  [HAVE] [PLATFORM] Cloud witness Storage Account
+      DECIDED: let the deploy wizard auto-create. Same rationale
+      as Key Vault.
+
+  [HAVE] [SECURITY] [PLATFORM] Security baseline
+      DECIDED: accept wizard's "Recommended" defaults (the highest
+      preset). BitLocker on OS + data, signed SMB, Credential Guard,
+      side-channel mitigations, drift control all enabled. Captured
+      in runbooks/deployment-wizard-answers.txt.
+
+========================================================================
+  PHASE 5 // ARC REGISTRATION
+========================================================================
+  Owner: [PLATFORM], requires remote PowerShell access to each node
+  Depends on Phase 3 complete and Phase 4 complete.
+  Blocks the cloud deployment wizard.
+
+  [ ] [PLATFORM] Verify remote PowerShell connectivity to all 6 nodes
+      Enter-PSSession -ComputerName <node-IP> -Credential (Get-Credential)
+
+  [ ] [PLATFORM] Run the Azure Arc agent bootstrap on each node
+      Registers each machine as an Arc-connected resource in Azure.
+      Docs:
+        https://learn.microsoft.com/en-us/azure/azure-local/deploy/deployment-arc-register-server-permissions
+
+  [ ] [PLATFORM] Verify all 6 nodes appear as Arc machines in the
+      Azure portal
+      Portal > Azure Arc > Machines. All 6 should show Connected.
+
+  [ ] [PLATFORM] Wait for Arc extensions to auto-install on each node
+      The portal installs required extensions automatically.
+      Status should change to Ready. May take several minutes.
+
+  [ ] [PLATFORM] Run the Environment Checker on one node
+      Validates outbound connectivity to all required Azure endpoints.
+      If this fails, loop back to Networking for firewall rule
+      adjustments.
+
+========================================================================
+  PHASE 6 // CLOUD DEPLOYMENT VIA AZURE PORTAL WIZARD
+========================================================================
+  Owner: [PLATFORM], roughly 3-5 hours including validation
+  Depends on ALL previous phases complete.
+  Full question-by-question answer sheet in runbooks/deployment-wizard-answers.txt.
+
+  [ ] [PLATFORM] Azure Portal > Azure Local > Create instance
+
+  [ ] [PLATFORM] Select subscription contoso-lab-sub,
+      RG rg-azlocal-poc-001, region westus3,
+      cluster name azloc-cl-001
+
+  [ ] [PLATFORM] Add Arc-onboarded nodes to the cluster
+      Pilot: AZL-NODE-01 only first to validate the path end-to-end
+      Expansion: add 02-06 once node 01 is in steady state
+      (Note: a deployed cluster cannot easily switch from 1-node to
+      multi-node; the pilot is to flush out wizard/RBAC issues. We may
+      need to tear down and redeploy to switch from 1-node to 6-node
+      mode - decide at the pilot review.)
+
+  [ ] [PLATFORM] Key Vault: let wizard create azloccl001kv
+
+  [ ] [PLATFORM] Configure single converged network intent
+      One intent carrying management + compute + storage
+      No jumbo frames, no DCB, no RDMA, no separate storage VLAN
+      Enter management subnet info: subnet mask + gateway (from
+        Networking team), DNS (post-imaging discovery)
+      Reserved IP pool start/end (from Networking team)
+      Cluster IP (first IP in reserved pool)
+
+  [ ] [PLATFORM] Configure management settings
+      AD domain FQDN: corp.example.com
+      OU distinguished name (from Phase 2)
+      Deployment account credentials (from Phase 2)
+      Local admin credentials (set by smart hands in Phase 0)
+      Custom location: azloc-cl-001-cl
+
+  [ ] [PLATFORM] Set security level: Recommended (highest)
+
+  [ ] [PLATFORM] Workload volumes: let wizard auto-create
+
+  [ ] [PLATFORM] Validate (~15 min), then Deploy (~3-5 hours)
+
+========================================================================
+  PHASE 7 // POST-DEPLOYMENT VALIDATION
+========================================================================
+  Owner: [PLATFORM]
+
+  [ ] [PLATFORM] Verify in portal: cluster, Arc resource bridge,
+      custom location, infra logical network all present
+
+  [ ] [PLATFORM] Enable health monitoring alerts for storage pool
+      at 70% threshold
+
+  [ ] [PLATFORM] Enable RDP if needed via Enable-ASRemoteDesktop.
+      Disabled by default.
+
+  [ ] [PLATFORM] Run Sprint 2 test suite:
+      ansible-playbook playbooks/roles/azureLocal/tests/sprint2_cluster.yml \
+        -i inventory/AZLOC-POC/inv-azloc-poc.yml --tags validate
+
+  [ ] [PLATFORM] Run Sprint 1 connectivity validation:
+      ansible-playbook playbooks/roles/azureLocal/tests/sprint1_connectivity.yml \
+        -i inventory/AZLOC-POC/inv-azloc-poc.yml \
+        --vault-password-file=vault/.vault_key.txt
+
+========================================================================
+  COORDINATION SUMMARY
+========================================================================
+
+  Team          Phases       What platform team needs from them
+  ............  ...........  ..........................................
+  DC-TECH       0            Run smart_hands_node01.txt per node:
+                              BIOS settings, OS install, admin pass,
+                              network, WinRM enable. Also: patch KVM
+                              cables for nodes 04-06.
+
+  Networking    1            CIDR + gateway for 10.10.1.187-192,
+                              ~7 reserved IPs, outbound 443
+                              confirmation, NTP IP, proxy yes/no.
+                              See docs/prerequisites.md.
+
+  AD / Domain   2            OU + service account on
+                              corp.example.com.
+                              DO NOT pre-join machines.
+
+  The directory admins       4            3 PIM-eligible RBAC roles, 3 pending
+                              tag values. See docs/prerequisites.md
+                              section 1.
+
+  The platform team       0-pilot,     Smart-hands handback verify via WinRM,
+                4-self,      hardware inventory remotely, self-assign
+                5, 6, 7      remaining RBAC roles, Arc onboard, run
+                              deploy wizard, post-deploy validation.
+
+========================================================================
+  CRITICAL PATH
+========================================================================
+
+  Three parallel tracks; the cluster wizard sits at the convergence.
+
+  Track A (smart-hands imaging):
+    Phase 0 // smart_hands_node01.txt on AZL-NODE-01 first,
+    then 02 and 03 in parallel (already KVM-patched).
+    04/05/06 wait on KVM cable patch from the datacenter technician.
+
+  Track B (external info gathering):
+    Phase 1 (Networking) + Phase 2 (AD) + Phase 4 directory admins RBAC.
+    All paste-and-wait from docs/prerequisites.md.
+
+  Track C (Azure self-service, already mostly done):
+    Phase 4 self-service items checked off:
+      RPs registered, RG + Bicep deployed, observability + budget
+      live. Remaining: assign post-UAA RBAC inside the RG (waits
+      on Track B directory admins approval).
+
+  Convergence:
+    Phase 5 (Arc onboard) // needs Track A node + Track B firewall +
+                              Track C RBAC.
+    Phase 6 (deploy wizard) // needs Tracks A+B+C all complete +
+                              deployment-wizard-answers.txt filled in.
+    Phase 7 (validation)    // after wizard succeeds.
+
+  Pilot strategy: do Phase 5 + Phase 6 + Phase 7 against node 01
+  alone first. Decide at pilot review whether to expand to 6-node
+  in-place or tear down and redeploy.
+
+========================================================================

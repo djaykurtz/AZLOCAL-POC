@@ -1,0 +1,92 @@
+AZURE LOCAL NODE - LOCAL BOOTSTRAP (paste through KVM text input)
+================================================================
+PURPOSE: Bring a freshly imaged node onto the network + open WinRM so the
+DevBox can take over remotely (Wait-AndArcOnboard.ps1 etc). Run this AT THE
+NODE, in a local PowerShell, right after you set the admin password.
+
+WHY THIS EXISTS: you cannot reach the node over WinRM until networking + WinRM
+are up. This is the one manual, at-console step. Everything after is remote.
+
+HOW TO RUN
+1. Finish OS install. At SConfig, set the Administrator password (option 2-ish
+   / the first-logon prompt). You do NOT need to configure anything else in
+   SConfig. DO NOT run SConfig option 6 / Windows Update (recipe contamination).
+2. Open Task Manager: Ctrl+Shift+Esc.
+3. Task Manager -> File -> Run new task -> type:  powershell   -> check
+   "Create this task with administrative privileges" -> OK.
+4. In the blue PowerShell window, use the KVM software's "paste text" / "send
+   clipboard" to type the BLOCK BELOW for the node you are on.
+   *** EDIT ONE LINE FIRST: set $NodeNum to 3, 4, or 6. ***
+5. Watch for "BOOTSTRAP DONE" and the printed IP. Then go back to the DevBox.
+
+NOTES
+- Static IPs: 01=.187 02=.188 03=.189 04=.190 05=.191 06=.192 on 10.10.0.0/22.
+- The block auto-picks the physical NIC that is Up (the 1GbE mgmt / CORP NIC).
+- Safe to re-paste; it clears old IPs on the chosen NIC before setting the new one.
+- ASCII only. No backtick line-continuations (KVM paste-safe: one line per statement).
+
+
+================================================================
+BLOCK - paste this whole thing (set $NodeNum first)
+================================================================
+$NodeNum = 3
+$Short = 'azl-node-{0:D2}' -f $NodeNum
+$Ip = '10.10.1.{0}' -f (186 + $NodeNum)
+$Prefix = 22
+$Gw = '10.10.1.1'
+$Dns = @('10.20.50.50','10.20.10.50')
+$Suffix = 'lab.example.com'
+Write-Host "== Bootstrapping $Short ($Ip/$Prefix) ==" -ForegroundColor Cyan
+
+# 1) Rename the computer (no reboot yet; takes effect at the reboot below)
+try { Rename-Computer -NewName $Short -Force -ErrorAction Stop; Write-Host "  name set to $Short" } catch { Write-Host "  name: $($_.Exception.Message.Split([char]10)[0])" -ForegroundColor Yellow }
+
+# 2) Pick the physical NIC that is Up (mgmt/CORP 1GbE), set static IPv4
+$nic = Get-NetAdapter | Where-Object { $_.Status -eq 'Up' -and $_.HardwareInterface } | Sort-Object LinkSpeed | Select-Object -First 1
+if (-not $nic) { $nic = Get-NetAdapter | Where-Object Status -eq 'Up' | Select-Object -First 1 }
+Write-Host "  using NIC: $($nic.Name) [$($nic.InterfaceDescription)]"
+Get-NetIPAddress -InterfaceIndex $nic.ifIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue | Remove-NetIPAddress -Confirm:$false -ErrorAction SilentlyContinue
+Remove-NetRoute -InterfaceIndex $nic.ifIndex -AddressFamily IPv4 -Confirm:$false -ErrorAction SilentlyContinue
+Set-NetIPInterface -InterfaceIndex $nic.ifIndex -Dhcp Disabled -ErrorAction SilentlyContinue
+New-NetIPAddress -InterfaceIndex $nic.ifIndex -IPAddress $Ip -PrefixLength $Prefix -DefaultGateway $Gw | Out-Null
+Set-DnsClientServerAddress -InterfaceIndex $nic.ifIndex -ServerAddresses $Dns
+Write-Host "  static IP set: $Ip/$Prefix gw=$Gw"
+
+# 3) Primary DNS suffix
+Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters' -Name 'Domain' -Value $Suffix
+Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters' -Name 'NV Domain' -Value $Suffix
+Write-Host "  dns suffix set: $Suffix"
+
+# 4) Enable WinRM / PS Remoting for the DevBox to take over
+Set-NetConnectionProfile -InterfaceIndex $nic.ifIndex -NetworkCategory Private -ErrorAction SilentlyContinue
+Enable-PSRemoting -Force -SkipNetworkProfileCheck | Out-Null
+Set-Service WinRM -StartupType Automatic
+Start-Service WinRM
+Write-Host "  WinRM enabled + running"
+
+# 5) Firewall: WinRM 5985 inbound + Azure Local OS mgmt 30301
+if (-not (Get-NetFirewallRule -DisplayName 'WinRM 5985 In' -ErrorAction SilentlyContinue)) { New-NetFirewallRule -DisplayName 'WinRM 5985 In' -Direction Inbound -Action Allow -Protocol TCP -LocalPort 5985 -Profile Any -Enabled True | Out-Null }
+if (-not (Get-NetFirewallRule -DisplayName 'Azure Local OS Mgmt 30301' -ErrorAction SilentlyContinue)) { New-NetFirewallRule -DisplayName 'Azure Local OS Mgmt 30301' -Direction Inbound -Action Allow -Protocol TCP -LocalPort 30301 -Profile Any -Enabled True | Out-Null }
+Write-Host "  firewall rules ensured (5985, 30301)"
+
+# 6) Quick OS identity + Secure Boot sanity (proves Azure Local, not Server 2025)
+$os = Get-CimInstance Win32_OperatingSystem
+$sb = try { Confirm-SecureBootUEFI } catch { 'ERR' }
+Write-Host ("  OS: {0}  SKU={1}  SecureBoot={2}" -f $os.Caption, $os.OperatingSystemSKU, $sb) -ForegroundColor Green
+if ($os.OperatingSystemSKU -ne 406) { Write-Host "  *** WARNING: SKU is not 406 - this may NOT be Azure Local! ***" -ForegroundColor Red }
+if ("$sb" -ne 'True') { Write-Host "  *** WARNING: SecureBoot is not True - check BIOS (should be ON from install) ***" -ForegroundColor Red }
+
+Write-Host "== BOOTSTRAP DONE for $Short. IP=$Ip  Rebooting in 10s to apply name... ==" -ForegroundColor Cyan
+Start-Sleep -Seconds 10
+Restart-Computer -Force
+
+
+================================================================
+AFTER IT REBOOTS (from the DevBox, not the KVM)
+================================================================
+- Confirm reachable:   Test-WSMan -ComputerName <Short>.lab.example.com
+- Then the backend waiter picks it up (or run it targeted):
+    .\scripts\Wait-AndArcOnboard.ps1 -Nodes <Short>
+  which does: OS SKU 406 guard -> native recipe check -> delete stale Arc
+  resource -> Onboard-ArcMachine.ps1 -> verify Connected.
+- Storage + Secure Boot validator:  .\scripts\Test-SecureBootGate.ps1 -Nodes <Short>

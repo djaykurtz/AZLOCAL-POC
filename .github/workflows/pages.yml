@@ -1,0 +1,63 @@
+name: Publish capstone to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - docs/**
+      - .github/workflows/pages.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: false
+
+jobs:
+  package:
+    name: Package static capstone
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check out publication snapshot
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify website boundary
+        shell: bash
+        run: |
+          test -s docs/index.html
+          if find docs -type l -print -quit | grep -q .; then
+            echo "::error::The website must not contain symbolic links."
+            exit 1
+          fi
+          unexpected="$(find docs -type f ! -path 'docs/index.html' ! -path 'docs/assets/screenshots/*.png' -print)"
+          if [ -n "$unexpected" ]; then
+            echo "::error::Only the capstone and screenshot PNGs belong in the Pages artifact."
+            printf '%s\n' "$unexpected"
+            exit 1
+          fi
+      - name: Upload website only
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+
+  deploy:
+    name: Deploy static capstone
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+      - name: Deploy Pages artifact
+        id: deployment
+        uses: actions/deploy-pages@v5

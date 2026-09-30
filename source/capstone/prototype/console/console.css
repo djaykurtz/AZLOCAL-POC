@@ -1,0 +1,504 @@
+/*
+ * Evidence console, standalone.
+ *
+ * The visual language here is a recorder, not an app. There are no cards, no rounded corners, no
+ * elevation and no accent bars. Structure comes from hairline rules and a time gutter that runs
+ * unbroken from the claim ledger through the log, because everything on this screen is a timed
+ * record and the layout should say so before the text does.
+ *
+ * Sizing is tuned for a shared Teams window rather than a desk. Screen share compression destroys
+ * thin low-contrast detail first, so hairlines and mid-tones sit brighter than they would need to
+ * locally, and nothing carrying meaning is set below 12.5px.
+ *
+ * Kind hues match mockup v2 so the two can still be read as one product.
+ */
+
+:root {
+  --shell: #0a0b0c;
+  --sunk: #070809;
+  --ink: #e8eae5;
+  --ink-soft: #b0b6b1;
+  --ink-dim: #868d89;
+  --ink-faint: #656c6a;
+  --line: #272c2d;
+  --line-hi: #3d4446;
+  --red: #ff5763;
+
+  --k-net: #35e0e8;
+  --k-storage: #b9a3ff;
+  --k-control: #f5bd1f;
+  --k-orch: #21d96a;
+  --k-work: #ff8524;
+
+  --mono: ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace;
+  --sans: ui-sans-serif, system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+
+  --gutter: 72px;
+  --index: 26px;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  height: 100%;
+  margin: 0;
+  background: var(--shell);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 15px;
+  -webkit-font-smoothing: antialiased;
+}
+
+:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: -2px;
+}
+
+.claim-list,
+.term-body { scrollbar-width: thin; scrollbar-color: var(--line-hi) transparent; }
+
+::-webkit-scrollbar { width: 12px; height: 12px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--line-hi); }
+::-webkit-scrollbar-thumb:hover { background: var(--ink-faint); }
+
+.shell {
+  height: 100%;
+  display: grid;
+  grid-template-rows: 44px 1fr;
+}
+
+/* Status line ------------------------------------------------------------- */
+
+.hdr {
+  display: flex;
+  align-items: stretch;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--line-hi);
+  font-size: 14px;
+  overflow: hidden;
+}
+
+.hdr-l { display: flex; align-items: center; min-width: 0; }
+
+.hdr-l strong {
+  font-weight: 500;
+  padding: 0 16px;
+  line-height: 43px;
+  white-space: nowrap;
+}
+
+.hdr-l strong::before {
+  content: "> ";
+  color: var(--ink-faint);
+}
+
+.chip {
+  color: var(--ink-dim);
+  border-left: 1px solid var(--line);
+  padding: 0 16px;
+  line-height: 43px;
+  white-space: nowrap;
+}
+
+.chip::before { content: "["; color: var(--ink-faint); }
+.chip::after { content: "]"; color: var(--ink-faint); }
+
+.hdr-r { display: flex; align-items: stretch; }
+
+/* Bracketed toggles. No boxes, no fills, no rounding. Active state inverts. */
+
+.seg { display: flex; border-left: 1px solid var(--line); }
+
+.seg button {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--ink-dim);
+  font: inherit;
+  padding: 0 13px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.seg button::before { content: "["; color: var(--ink-faint); margin-right: 5px; }
+.seg button::after { content: "]"; color: var(--ink-faint); margin-left: 5px; }
+
+.seg button:hover { color: var(--ink); }
+
+.seg button.on {
+  background: var(--ink);
+  color: var(--shell);
+}
+
+.seg button.on::before,
+.seg button.on::after { color: var(--shell); opacity: 0.45; }
+
+/* Stage ------------------------------------------------------------------- */
+
+.stage {
+  min-height: 0;
+  display: grid;
+  gap: 0;
+}
+
+.stage[data-layout="split"] { grid-template-columns: minmax(360px, 32%) 1fr; }
+.stage[data-layout="stack"] { grid-template-rows: auto 1fr; }
+.stage[data-layout="focus"] { grid-template-columns: 1fr; }
+.stage[data-layout="focus"] .claims { display: none; }
+
+/* Claim ledger ------------------------------------------------------------ */
+
+.claims {
+  min-height: 0;
+  min-width: 0;
+  display: grid;
+  grid-template-rows: 34px 1fr;
+}
+
+.cap {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 14px 0 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+  color: var(--ink-dim);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.cap::before {
+  content: "";
+  width: var(--index);
+  align-self: stretch;
+  border-right: 1px solid var(--line);
+  flex: none;
+}
+
+.cap span {
+  color: var(--ink-faint);
+  margin-left: auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.claim-list {
+  counter-reset: claim;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  min-height: 0;
+  overflow: auto;
+}
+
+.claim {
+  counter-increment: claim;
+  display: grid;
+  grid-template-columns: var(--index) 1fr;
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+}
+
+/* The ruler. A continuous vertical rule with the record index sitting on it. */
+
+.claim::before {
+  content: counter(claim, decimal-leading-zero);
+  grid-column: 1;
+  grid-row: 1 / -1;
+  border-right: 1px solid var(--line);
+  padding-top: 11px;
+  text-align: center;
+  font-size: 16px;
+  color: var(--ink-faint);
+  user-select: none;
+}
+
+.claim-top,
+.claim-text,
+.claim-cmd { grid-column: 2; padding-left: 16px; padding-right: 16px; }
+
+.claim-top {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding-top: 11px;
+  font-size: 13px;
+}
+
+.claim-mark { color: var(--kind, var(--ink-dim)); flex: none; }
+.claim-mark::before { content: "["; color: var(--ink-faint); }
+.claim-mark::after { content: "]"; color: var(--ink-faint); }
+
+.claim.bad .claim-mark { color: var(--red); }
+
+.claim-where {
+  color: var(--ink-dim);
+  margin-left: auto;
+  flex: none;
+}
+
+.claim.is-live .claim-where { color: var(--k-orch); }
+
+.claim-text {
+  padding-top: 7px;
+  padding-bottom: 14px;
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--ink-soft);
+}
+
+.claim-cmd {
+  padding-bottom: 14px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--ink-faint);
+  white-space: pre-wrap;
+  word-break: break-word;
+  display: none;
+}
+
+.claim:hover .claim-text { color: var(--ink); }
+.claim:hover::before { color: var(--ink-dim); }
+
+/* Selection inverts, the way a highlighted line does in a pager. */
+
+.claim.on { background: var(--ink); }
+.claim.on::before { color: var(--shell); border-right-color: var(--shell); }
+.claim.on .claim-text,
+.claim.on .claim-top,
+.claim.on .claim-mark,
+.claim.on .claim-where { color: var(--shell); }
+.claim.on .claim-mark::before,
+.claim.on .claim-mark::after { color: var(--shell); opacity: 0.45; }
+.claim.on .claim-cmd { display: block; color: #383c3a; }
+
+/* Stack layout turns the ledger on its side, so the separator moves with it. */
+
+.stage[data-layout="stack"] .claim-list {
+  display: flex;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.stage[data-layout="stack"] .claim {
+  min-width: 380px;
+  border-bottom: 0;
+  border-right: 1px solid var(--line);
+  align-content: start;
+}
+
+/* Log --------------------------------------------------------------------- */
+
+.term {
+  min-height: 0;
+  min-width: 0;
+  display: grid;
+  grid-template-rows: 34px 1fr 32px;
+  border-left: 1px solid var(--line-hi);
+  background: var(--sunk);
+}
+
+.stage[data-layout="stack"] .term { border-left: 0; border-top: 1px solid var(--line-hi); }
+.stage[data-layout="focus"] .term { border-left: 0; }
+
+.term-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-right: 10px;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+  overflow: hidden;
+}
+
+/* The status token replaces the pulsing dot. It says what it is instead of implying it. */
+
+.dot {
+  flex: none;
+  width: var(--gutter);
+  align-self: stretch;
+  border-right: 1px solid var(--line);
+  padding-right: 10px;
+  text-align: right;
+  font-size: 14px;
+  line-height: 33px;
+  color: var(--ink-faint);
+}
+
+.dot::before { content: "ready"; }
+.dot.live { color: var(--k-orch); }
+.dot.live::before { content: "rec"; display: inline-block; animation: blink 1.1s steps(2, end) infinite; }
+.dot.bad { color: var(--red); }
+.dot.bad::before { content: "fail"; }
+
+@keyframes blink { 50% { opacity: 0.2; } }
+
+.term-host { color: var(--ink-soft); white-space: nowrap; }
+.term-note { color: var(--ink-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.replay {
+  margin-left: auto;
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--ink-dim);
+  font: inherit;
+  padding: 0 6px;
+  cursor: pointer;
+  flex: none;
+}
+
+.replay::before { content: "["; color: var(--ink-faint); margin-right: 5px; }
+.replay::after { content: "]"; color: var(--ink-faint); margin-left: 5px; }
+.replay:hover { color: var(--ink); }
+
+.term-body {
+  min-height: 0;
+  overflow: auto;
+  font-size: 15px;
+  line-height: 1.75;
+  padding-bottom: 16px;
+}
+
+.term-empty {
+  margin: 0;
+  padding: 18px 20px 18px calc(var(--gutter) + 16px);
+  color: var(--ink-dim);
+  font-size: 15px;
+  line-height: 1.6;
+  max-width: 60ch;
+}
+
+/* Every log line hangs off the same time gutter as the ledger. */
+
+.row { display: flex; }
+
+.row .ts {
+  flex: none;
+  width: var(--gutter);
+  padding-right: 10px;
+  border-right: 1px solid var(--line);
+  color: var(--ink-faint);
+  font-size: 14px;
+  text-align: right;
+  user-select: none;
+}
+
+.row .txt {
+  padding: 0 20px 0 16px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--ink-soft);
+}
+
+.row.cmd .txt { color: var(--ink); }
+.row.cmd .txt::before { content: "$ "; color: var(--kind, var(--ink-dim)); }
+.row.good .txt { color: var(--k-orch); }
+.row.warn .txt { color: var(--k-control); }
+.row.bad .txt { color: var(--red); }
+.row.note .txt { color: var(--ink-dim); }
+.row.note .txt::before { content: "# "; color: var(--ink-faint); }
+
+.caret {
+  display: inline-block;
+  width: 8px;
+  height: 16px;
+  vertical-align: -3px;
+  background: var(--ink);
+  animation: blink 1s steps(2, end) infinite;
+}
+
+.term-foot {
+  display: flex;
+  align-items: center;
+  border-top: 1px solid var(--line);
+  background: var(--shell);
+  color: var(--ink-dim);
+  font-size: 13px;
+  padding-right: 12px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.term-foot::before {
+  content: "";
+  width: var(--gutter);
+  align-self: stretch;
+  flex: none;
+  border-right: 1px solid var(--line);
+}
+
+.term-foot span {
+  padding-left: 16px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Live cue ---------------------------------------------------------------- */
+
+.cue {
+  padding: 20px 20px 20px calc(var(--gutter) + 16px);
+  max-width: 76ch;
+}
+
+.cue-lead {
+  margin: 0 0 18px;
+  font-size: 16px;
+  line-height: 1.5;
+  color: var(--ink);
+}
+
+.cue-cmd {
+  margin: 0 0 18px;
+  font-family: var(--mono);
+  font-size: 18px;
+  line-height: 1.7;
+  color: var(--k-orch);
+  background: #0d1712;
+  padding: 14px 18px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* The one place sans earns its keep, because this is a paragraph and not output. */
+
+.cue-why {
+  margin: 0 0 22px;
+  font-family: var(--sans);
+  font-size: 15px;
+  line-height: 1.65;
+  color: var(--ink-soft);
+  max-width: 62ch;
+}
+
+.cue-fall {
+  appearance: none;
+  border: 1px solid var(--line-hi);
+  background: transparent;
+  color: var(--ink-dim);
+  font: inherit;
+  font-size: 14px;
+  padding: 9px 15px;
+  cursor: pointer;
+}
+
+.cue-fall:hover { color: var(--ink); border-color: var(--ink-dim); }
+
+/* A shared window is often a fraction of a screen, so the split gives up early. */
+
+@media (max-width: 1100px) {
+  .stage[data-layout="split"] {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(140px, 38%) 1fr;
+  }
+
+  .stage[data-layout="split"] .term { border-left: 0; border-top: 1px solid var(--line-hi); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dot.live::before,
+  .caret { animation: none; }
+}

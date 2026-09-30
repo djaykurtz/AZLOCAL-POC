@@ -1,0 +1,208 @@
+========================================================================
+  AZURE LOCAL POC // FIREWALL ALLOWLIST DIFF
+========================================================================
+  Diff of our original firewall allowlist request against the AUTHORITATIVE
+  Microsoft consolidated endpoint list for South Central US (our Arc
+  control-plane region per decisions/0001-arc-control-plane-region.md).
+
+  Authoritative source (bundles Azure Local + Arc-Servers + ARB + AKS):
+    https://github.com/Azure/AzureStack-Tools/blob/master/HCI/SouthCentralUSEndpoints/southcentralus-hci-endpoints.md
+  SCUS list last updated: 2025-11-27 (82 rows).
+  Diff performed: 2026-07-14.
+
+  WHY THIS MATTERS: our original request was written against the GLOBAL
+  FQDN families on the Learn firewall-requirements page. The SCUS list is
+  region-specific and STRICTER - it names regional hostnames and several
+  cert/CRL + telemetry + AKS endpoints the global page only implies. A
+  wildcard we already have often does NOT cover a deeper regional label.
+
+========================================================================
+  WILDCARD COVERAGE NOTE (read first)
+========================================================================
+  A firewall wildcard "*.foo.com" matches ONE label to the left (x.foo.com)
+  but usually NOT a deeper label (x.y.foo.com) and NOT the apex (foo.com).
+  Several gaps below exist purely because of that depth/apex rule. If the
+  network team's device does prefix-suffix contains-matching instead of
+  strict single-label wildcards, the "DEPTH" items may already be covered -
+  confirm with them rather than assuming.
+
+========================================================================
+  GROUP A // BLOCKING GAPS - DEPLOY WILL FAIL WITHOUT THESE
+========================================================================
+  Add these to the allowlist. Outbound TCP 443 unless noted.
+
+  FQDN                                                   Why
+  -----------------------------------------------------  -----------------------------------------
+  www.powershellgallery.com                              Arc registration pulls PSGallery modules.
+                                                         Bootstrap fails at module install without it.
+  <our-kv-name>.vault.azure.net                          Deployment-secrets Key Vault. MUST substitute
+                                                         our ACTUAL vault FQDN (SCUS row 47 is a
+                                                         placeholder). One host, not a wildcard.
+  sts.windows.net                                        Entra token - Cluster Connect / custom location.
+  login.windows.net                                      Entra ID auth. Apex NOT covered by our list.
+  graph.windows.net                                      Graph auth/token. NOT in our request.
+  southcentralus.login.microsoft.com                     Regional ARM token host. Our list has apex
+                                                         login.microsoft.com only -> subdomain MISSED.
+  dp.stackhci.azure.com                                  Data-plane diag+billing. APEX host; our
+                                                         *.dp.stackhci.azure.com wildcard MISSES apex.
+  licensing.platform.edge.azure.com                      Azure Local licensing billing. Required.
+  billing.platform.edge.azure.com                        Azure Local billing data. Required.
+  azurestackreleases.download.prss.microsoft.com         Azure Local Arc extension payloads.
+  *.blob.storage.azure.net                               AKS/ARB blob access (distinct from
+                                                         *.blob.core.windows.net - different suffix).
+  hciarcvmsstorage.z13.web.core.windows.net              stack-hci-vm CLI extension files.
+  arcplatformcliextprod.z13.web.core.windows.net         ARB extension deploy.
+  k8connecthelm.azureedge.net                            Arc agent Helm deploy.
+  k8sconnectcsp.azureedge.net                            Custom Location connect.
+  *.do.dsp.mp.microsoft.com                              AKS-Arc VHD Delivery Optimization.
+  *.prod.do.dsp.mp.microsoft.com                         AKS-Arc VHD DO (regional).
+  msk8s.sb.tlu.dl.delivery.mp.microsoft.com              ARB OS image pull. NOTE: our request has
+                                                         msk8s.B.tlu... (letter b). SCUS wants SB.
+                                                         Add the sb host; keep both to be safe.
+  portal.azure.com                                       Azure Local deploy portal calls.
+
+========================================================================
+  GROUP B // CERT VALIDATION - CRL/OCSP on PORT 80 (deploy STALLS)
+========================================================================
+  Platform attestation + mandatory Arc-extension cert checks. These are
+  HTTP/80, not 443. A 443-only rule will silently block them and the
+  deploy hangs on cert revocation lookups. Our request only had
+  crl.microsoft.com + ctldl.windowsupdate.com on 80.
+
+  FQDN                          Port  Why
+  ----------------------------  ----  -----------------------------------
+  crl3.digicert.com             80    Platform attestation CRL.
+  crl4.digicert.com             80    Platform attestation CRL.
+  ocsp.digicert.com             80    Public CA OCSP.
+  oneocsp.microsoft.com         80    Microsoft OCSP.
+  ocsp2.globalsign.com          80    Public CA OCSP.
+  ts-crl.ws.symantec.com        80    Public CA CRL.
+  ts-ocsp.ws.symantec.com       80    Public CA OCSP.
+  s.symcd.com                   80    Public CA OCSP.
+  tlu.dl.delivery.mp.microsoft.com  80   Azure Local update payload (80, deep label).
+
+========================================================================
+  GROUP C // MONITORING + BILLING TELEMETRY (some REQUIRED, add all)
+========================================================================
+  The SCUS list marks these "Deployment & Post deployment". Several feed
+  the health/billing pipeline the portal reads to mark the cluster healthy.
+  Recommend adding all; cheap and avoids a second firewall round-trip.
+
+  FQDN                                                             Why
+  ---------------------------------------------------------------  --------------------------
+  global.prod.microsoftmetrics.com                                 Metrics/monitoring.
+  prod5.prod.microsoftmetrics.com                                  Metrics/monitoring.
+  *.prod.hot.ingest.monitor.core.windows.net                      Monitor ingest.
+  qos.prod.warm.ingest.monitor.core.windows.net                   Monitor QoS ingest.
+  southcentralus-shared.prod.warm.ingest.monitor.core.windows.net Monitor ingest (regional).
+  gcs.prod.monitoring.core.windows.net                            Monitoring agent configuration.
+  prod5.prod.hot.ingestion.msftcloudes.com                        Required diagnostic data.
+  dc.services.visualstudio.com                                    App Insights telemetry.
+  azurewatsonanalysis-prod.core.windows.net                       Crash/telemetry analysis.
+  edgesupprd.trafficmanager.net                                   Remote Support extension.
+  tsfe.trafficshaping.dsp.mp.microsoft.com                        MS Update content regulation.
+  www.msftconnecttest.com  (port 80)                              Outbound connectivity probe.
+
+========================================================================
+  GROUP D // POST-DEPLOY / NON-443 (add now if we extend to AKS)
+========================================================================
+  FQDN                                 Port  Why
+  -----------------------------------  ----  --------------------------------
+  southcentralus.obo.arc.azure.com     8084  AKS-Arc extensions AFTER deploy.
+                                             Non-standard port - call it out
+                                             explicitly to the network team.
+  time.windows.com                     123   Public NTP. We plan to use AD-DC
+                                             NTP (UDP 123 already requested),
+                                             so only needed if we point at
+                                             public time. Decide + note.
+
+========================================================================
+  GROUP E // OPTIONAL - only if feature enabled
+========================================================================
+  *.endpoint.security.microsoft.com    443   Only if Microsoft Defender MDE
+                                             extension is enabled.
+  <gatewayid>.gw.arc.azure.com         443   Only if using Arc gateway. We are
+                                             NOT (direct egress) -> skip.
+
+========================================================================
+  ALREADY COVERED BY OUR REQUEST (no action) - spot check
+========================================================================
+  mcr.microsoft.com, *.data.mcr.microsoft.com, *.azurecr.io (covers
+  ecpacr / hybridaks / kvamanagementoperator / azurearcfork8s /
+  hciarcvmscontainerregistry), *.dp.kubernetesconfiguration.azure.com,
+  *.dp.prod.appliances.azure.com (covers scus.dp.prod.appliances),
+  *.his.arc.azure.com (covers scus.his + gbl.his), *.guestconfiguration
+  (covers southcentralus-gas + agentserviceapi), *.servicebus.windows.net
+  (covers azgn*), *.blob.core.windows.net, *.events.data.microsoft.com
+  (covers adhs + v20), management.azure.com, login.microsoftonline.com,
+  graph.microsoft.com, aka.ms, go.microsoft.com, download.microsoft.com,
+  packages.microsoft.com, settings-win.data.microsoft.com,
+  azurestackhci.azurefd.net, *.delivery.mp.microsoft.com (covers fe3/fe3cr),
+  crl.microsoft.com/pkiinfra, *.waconazure.com, pas.windows.net.
+
+========================================================================
+  ITEMS TO WATCH (wildcard-depth ambiguity - confirm with net team)
+========================================================================
+  - *.dl.delivery.mp.microsoft.com : we have dl.delivery.mp.microsoft.com
+    (apex) + *.delivery.mp.microsoft.com. A single-label wildcard may NOT
+    cover x.dl.delivery... Add *.dl.delivery.mp.microsoft.com to be safe.
+  - guestnotificationservice.azure.com : SCUS lists the APEX; we have
+    *.guestnotificationservice.azure.com (no apex). Add the apex host.
+
+========================================================================
+  PASTE-READY ADDITIONS (Group A + B + C, the safe superset)
+========================================================================
+  www.powershellgallery.com
+  <our-kv-name>.vault.azure.net
+  sts.windows.net
+  login.windows.net
+  graph.windows.net
+  southcentralus.login.microsoft.com
+  dp.stackhci.azure.com
+  licensing.platform.edge.azure.com
+  billing.platform.edge.azure.com
+  azurestackreleases.download.prss.microsoft.com
+  *.blob.storage.azure.net
+  hciarcvmsstorage.z13.web.core.windows.net
+  arcplatformcliextprod.z13.web.core.windows.net
+  k8connecthelm.azureedge.net
+  k8sconnectcsp.azureedge.net
+  *.do.dsp.mp.microsoft.com
+  *.prod.do.dsp.mp.microsoft.com
+  *.dl.delivery.mp.microsoft.com
+  msk8s.sb.tlu.dl.delivery.mp.microsoft.com
+  guestnotificationservice.azure.com
+  portal.azure.com
+  global.prod.microsoftmetrics.com
+  prod5.prod.microsoftmetrics.com
+  *.prod.hot.ingest.monitor.core.windows.net
+  qos.prod.warm.ingest.monitor.core.windows.net
+  southcentralus-shared.prod.warm.ingest.monitor.core.windows.net
+  gcs.prod.monitoring.core.windows.net
+  prod5.prod.hot.ingestion.msftcloudes.com
+  dc.services.visualstudio.com
+  azurewatsonanalysis-prod.core.windows.net
+  edgesupprd.trafficmanager.net
+  tsfe.trafficshaping.dsp.mp.microsoft.com
+  # --- PORT 80 (HTTP) additions ---
+  crl3.digicert.com:80
+  crl4.digicert.com:80
+  ocsp.digicert.com:80
+  oneocsp.microsoft.com:80
+  ocsp2.globalsign.com:80
+  ts-crl.ws.symantec.com:80
+  ts-ocsp.ws.symantec.com:80
+  s.symcd.com:80
+  tlu.dl.delivery.mp.microsoft.com:80
+  www.msftconnecttest.com:80
+  # --- Non-443 / post-deploy (add if extending to AKS) ---
+  southcentralus.obo.arc.azure.com:8084
+
+========================================================================
+  NEXT STEP AFTER FIREWALL OPEN
+========================================================================
+  Validate LIVE from an imaged node once the allowlist is applied:
+    .\scripts\Test-NodeOutbound.ps1 -NodeFqdn azl-node-01.lab.example.com
+  That script only probes 6 anchor endpoints today. Recommend extending it
+  to walk this paste-ready list so we PROVE egress instead of assuming.
+========================================================================

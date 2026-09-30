@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Azure Local - Cluster Network Wiring Reference</title>
+<style>
+  :root{
+    --blue:#2563eb; --green:#16a34a; --orange:#ea580c;
+    --ink:#0f172a; --muted:#475569; --line:#cbd5e1; --bg:#f8fafc; --card:#ffffff;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:var(--ink);background:var(--bg);line-height:1.5}
+  header{background:#0b1220;color:#fff;padding:22px 28px}
+  header h1{margin:0 0 4px;font-size:22px}
+  header p{margin:0;color:#9fb3d1;font-size:13px}
+  main{max-width:1280px;margin:0 auto;padding:24px 20px 60px}
+  h2{font-size:17px;margin:30px 0 12px;border-bottom:2px solid var(--line);padding-bottom:6px}
+  .legend{display:flex;gap:20px;flex-wrap:wrap;margin:14px 0 6px;font-size:13px}
+  .legend span{display:inline-flex;align-items:center;gap:7px}
+  .swatch{width:22px;height:6px;border-radius:3px;display:inline-block}
+  .diagram{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:8px;overflow-x:auto}
+  svg{display:block;min-width:1180px}
+  table{border-collapse:collapse;width:100%;font-size:13px;background:var(--card);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+  th,td{padding:8px 10px;text-align:left;border-bottom:1px solid var(--line)}
+  th{background:#eef2f7;font-weight:600}
+  td.mono,th.mono{font-family:Consolas,monospace;font-size:12px}
+  tr:last-child td{border-bottom:none}
+  .pill{display:inline-block;padding:1px 8px;border-radius:999px;font-size:11px;font-weight:600;color:#fff}
+  .p-blue{background:var(--blue)} .p-green{background:var(--green)} .p-orange{background:var(--orange)}
+  .p-grey{background:#64748b}
+  .rules{background:#fff7ed;border:1px solid #fed7aa;border-radius:10px;padding:14px 18px;font-size:13px}
+  .rules li{margin:6px 0}
+  .rules b{color:#9a3412}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+  @media(max-width:900px){.two{grid-template-columns:1fr}}
+  .note{font-size:12px;color:var(--muted);margin-top:6px}
+  code{background:#eef2f7;padding:1px 5px;border-radius:4px;font-size:12px}
+
+  /* Printed as a landscape reference sheet. The topology is 1240 units wide and the colour
+     coding carries the VLAN meaning, so both have to survive the PDF. */
+  @media print{
+    @page{size:Letter landscape;margin:12mm}
+    *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    body{background:#fff}
+    main{max-width:none;padding:0}
+    header{padding:12px 16px;break-after:avoid}
+    .diagram{overflow:visible;padding:0;break-inside:avoid}
+    svg{min-width:0;width:100%;height:auto}
+    h2{break-after:avoid;margin-top:16px}
+    .rules,.legend{break-inside:avoid}
+    table{break-inside:auto}
+    thead{display:table-header-group}
+    tr{break-inside:avoid}
+    a{color:inherit;text-decoration:none}
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Azure Local - Cluster Network Wiring Reference</h1>
+  <p>Rack rack-01 | Cluster nodes 01, 02, 04, 06 (node 03 = hot spare, node 05 = deferred) | Storage host data re-verified live against all four cluster nodes 2026-08-31. Storage networking is HEALTHY: 711 and 712 both forwarding tagged, RDMA enabled on every storage port, PFC priority 3 lossless confirmed.</p>
+</header>
+<main>
+
+  <p>This shows how each node's interfaces must connect and how the two top-of-rack switches must be configured. There are two independent planes: a routed <b>management</b> plane on the 1 GbE Broadcom ports, and two isolated <b>storage</b> fabrics on the 100 GbE Mellanox ports. Each storage port carries a SINGLE storage VLAN, tagged (802.1Q) - Port3 to the VLAN 711 fabric on sw1, Port4 to the VLAN 712 fabric on sw2. It is tagged rather than a plain access port only so PFC's 802.1p priority bits survive; it is not a multi-VLAN trunk. Match interfaces to switch ports by MAC. Management ports use OUI <code>C4:CB:E1</code> (Broadcom). Storage ports use OUI <code>98:03:9B</code> or <code>B8:59:9F</code> (both Mellanox; node 02 Port4 uses B8:59:9F after the 2026-07-24 card swap).</p>
+
+  <div class="legend">
+    <span><i class="swatch" style="background:var(--blue)"></i> Management - VLAN 152 - routed, gateway 10.10.1.1</span>
+    <span><i class="swatch" style="background:var(--green)"></i> Storage Fabric A - VLAN 711 - switch sw1</span>
+    <span><i class="swatch" style="background:var(--orange)"></i> Storage Fabric B - VLAN 712 - switch sw2</span>
+  </div>
+
+  <div class="diagram">
+  <svg viewBox="0 0 1240 470" role="img" aria-label="Cluster network topology">
+    <!-- rails -->
+    <line x1="40" y1="100" x2="1200" y2="100" stroke="#2563eb" stroke-width="5"/>
+    <line x1="40" y1="160" x2="1200" y2="160" stroke="#16a34a" stroke-width="5"/>
+    <line x1="40" y1="220" x2="1200" y2="220" stroke="#ea580c" stroke-width="5"/>
+    <!-- rail labels -->
+    <text x="44" y="92"  font-size="12" font-weight="700" fill="#1e3a8a">Management VLAN 152 (routed, gw 10.10.1.1) - access ports, standard MTU</text>
+    <text x="44" y="152" font-size="12" font-weight="700" fill="#14532d">Storage fabric A - VLAN 711 tagged (802.1Q for PFC) -> SW1 STOR-SW-01 - jumbo 9214, PFC pri 3, no LAG, no gateway</text>
+    <text x="44" y="212" font-size="12" font-weight="700" fill="#7c2d12">Storage fabric B - VLAN 712 tagged (802.1Q for PFC) -> SW2 STOR-SW-02 - jumbo 9214, PFC pri 3, no LAG, no gateway</text>
+
+    <!-- NODE GROUPS: each has green(Port3->711) blue(mgmt->152) orange(Port4->712) -->
+    <!-- node01 center 270 -->
+    <g>
+      <line x1="220" y1="300" x2="220" y2="160" stroke="#16a34a" stroke-width="2.5"/>
+      <line x1="270" y1="300" x2="270" y2="100" stroke="#2563eb" stroke-width="2.5"/>
+      <line x1="320" y1="300" x2="320" y2="220" stroke="#ea580c" stroke-width="2.5"/>
+      <text x="216" y="292" font-size="8.5" font-family="Consolas,monospace" fill="#14532d" transform="rotate(-90 216 292)">00-00-5E-00-53-06</text>
+      <text x="266" y="292" font-size="8.5" font-family="Consolas,monospace" fill="#1e3a8a" transform="rotate(-90 266 292)">00-00-5E-00-53-0B</text>
+      <text x="316" y="292" font-size="8.5" font-family="Consolas,monospace" fill="#7c2d12" transform="rotate(-90 316 292)">00-00-5E-00-53-01</text>
+      <rect x="185" y="300" width="170" height="130" rx="8" fill="#fff" stroke="#334155" stroke-width="1.5"/>
+      <text x="270" y="326" font-size="14" font-weight="700" text-anchor="middle">AZL-NODE-01</text>
+      <text x="270" y="345" font-size="11" text-anchor="middle" fill="#16a34a" font-weight="700">CLUSTER</text>
+      <text x="270" y="366" font-size="11" text-anchor="middle" fill="#475569">mgmt 10.10.1.187</text>
+      <text x="270" y="388" font-size="10" text-anchor="middle" fill="#334155">Port3 -> 711 | Port4 -> 712</text>
+      <text x="270" y="406" font-size="10" text-anchor="middle" fill="#334155">mgmt NIC: Management</text>
+    </g>
+    <!-- node02 center 480 -->
+    <g>
+      <line x1="430" y1="300" x2="430" y2="160" stroke="#16a34a" stroke-width="2.5"/>
+      <line x1="480" y1="300" x2="480" y2="100" stroke="#2563eb" stroke-width="2.5"/>
+      <line x1="530" y1="300" x2="530" y2="220" stroke="#ea580c" stroke-width="2.5"/>
+      <text x="426" y="292" font-size="8.5" font-family="Consolas,monospace" fill="#14532d" transform="rotate(-90 426 292)">00-00-5E-00-53-03</text>
+      <text x="476" y="292" font-size="8.5" font-family="Consolas,monospace" fill="#1e3a8a" transform="rotate(-90 476 292)">00-00-5E-00-53-0C</text>
+      <text x="526" y="292" font-size="8.5" font-family="Consolas,monospace" fill="#7c2d12" transform="rotate(-90 526 292)">00-00-5E-00-53-04</text>
+      <rect x="395" y="300" width="170" height="130" rx="8" fill="#fff" stroke="#334155" stroke-width="1.5"/>
+      <text x="480" y="326" font-size="14" font-weight="700" text-anchor="middle">AZL-NODE-02</text>
+      <text x="480" y="345" font-size="11" text-anchor="middle" fill="#16a34a" font-weight="700">CLUSTER</text>
+      <text x="480" y="366" font-size="11" text-anchor="middle" fill="#475569">mgmt 10.10.1.188</text>
+      <text x="480" y="388" font-size="10" text-anchor="middle" fill="#334155">Port3 -> 711 | Port4 -> 712</text>
+      <text x="480" y="406" font-size="10" text-anchor="middle" fill="#334155">mgmt NIC: Management</text>
+    </g>
+    <!-- node04 center 690 -->
+    <g>
+      <line x1="640" y1="300" x2="640" y2="160" stroke="#16a34a" stroke-width="2.5"/>
+      <line x1="690" y1="300" x2="690" y2="100" stroke="#2563eb" stroke-width="2.5"/>
+      <line x1="740" y1="300" x2="740" y2="220" stroke="#ea580c" stroke-width="2.5"/>
+      <text x="636" y="292" font-size="8.5" font-family="Consolas,monospace" fill="#14532d" transform="rotate(-90 636 292)">00-00-5E-00-53-07</text>
+      <text x="686" y="292" font-size="8.5" font-family="Consolas,monospace" fill="#1e3a8a" transform="rotate(-90 686 292)">00-00-5E-00-53-0D</text>
+      <text x="736" y="292" font-size="8.5" font-family="Consolas,monospace" fill="#7c2d12" transform="rotate(-90 736 292)">00-00-5E-00-53-08</text>
+      <rect x="605" y="300" width="170" height="130" rx="8" fill="#fff" stroke="#334155" stroke-width="1.5"/>
+      <text x="690" y="326" font-size="14" font-weight="700" text-anchor="middle">AZL-NODE-04</text>
+      <text x="690" y="345" font-size="11" text-anchor="middle" fill="#16a34a" font-weight="700">CLUSTER</text>
+      <text x="690" y="366" font-size="11" text-anchor="middle" fill="#475569">mgmt 10.10.1.190</text>
+      <text x="690" y="388" font-size="10" text-anchor="middle" fill="#334155">Port3 -> 711 | Port4 -> 712</text>
+      <text x="690" y="406" font-size="10" text-anchor="middle" fill="#334155">mgmt NIC: Management</text>
+    </g>
+    <!-- node06 center 900 -->
+    <g>
+      <line x1="850" y1="300" x2="850" y2="160" stroke="#16a34a" stroke-width="2.5"/>
+      <line x1="900" y1="300" x2="900" y2="100" stroke="#2563eb" stroke-width="2.5"/>
+      <line x1="950" y1="300" x2="950" y2="220" stroke="#ea580c" stroke-width="2.5"/>
+      <text x="846" y="292" font-size="8.5" font-family="Consolas,monospace" fill="#14532d" transform="rotate(-90 846 292)">00-00-5E-00-53-09</text>
+      <text x="896" y="292" font-size="8.5" font-family="Consolas,monospace" fill="#1e3a8a" transform="rotate(-90 896 292)">00-00-5E-00-53-0E</text>
+      <text x="946" y="292" font-size="8.5" font-family="Consolas,monospace" fill="#7c2d12" transform="rotate(-90 946 292)">00-00-5E-00-53-0A</text>
+      <rect x="815" y="300" width="170" height="130" rx="8" fill="#fff" stroke="#334155" stroke-width="1.5"/>
+      <text x="900" y="326" font-size="14" font-weight="700" text-anchor="middle">AZL-NODE-06</text>
+      <text x="900" y="345" font-size="11" text-anchor="middle" fill="#16a34a" font-weight="700">CLUSTER</text>
+      <text x="900" y="366" font-size="11" text-anchor="middle" fill="#475569">mgmt 10.10.1.192</text>
+      <text x="900" y="388" font-size="10" text-anchor="middle" fill="#334155">Port3 -> 711 | Port4 -> 712</text>
+      <text x="900" y="406" font-size="10" text-anchor="middle" fill="#334155">mgmt NIC: Management</text>
+    </g>
+    <!-- node03 center 1110 spare -->
+    <g>
+      <line x1="1060" y1="300" x2="1060" y2="160" stroke="#16a34a" stroke-width="2.5" stroke-dasharray="5 4"/>
+      <line x1="1110" y1="300" x2="1110" y2="100" stroke="#2563eb" stroke-width="2.5" stroke-dasharray="5 4"/>
+      <line x1="1160" y1="300" x2="1160" y2="220" stroke="#ea580c" stroke-width="2.5" stroke-dasharray="5 4"/>
+      <text x="1056" y="292" font-size="8.5" font-family="Consolas,monospace" fill="#14532d" transform="rotate(-90 1056 292)">00-00-5E-00-53-0F</text>
+      <text x="1106" y="292" font-size="8.5" font-family="Consolas,monospace" fill="#1e3a8a" transform="rotate(-90 1106 292)">00-00-5E-00-53-10</text>
+      <text x="1156" y="292" font-size="8.5" font-family="Consolas,monospace" fill="#7c2d12" transform="rotate(-90 1156 292)">00-00-5E-00-53-11</text>
+      <rect x="1025" y="300" width="170" height="130" rx="8" fill="#f8fafc" stroke="#64748b" stroke-width="1.5" stroke-dasharray="5 4"/>
+      <text x="1110" y="326" font-size="14" font-weight="700" text-anchor="middle">AZL-NODE-03</text>
+      <text x="1110" y="345" font-size="11" text-anchor="middle" fill="#64748b" font-weight="700">HOT SPARE</text>
+      <text x="1110" y="366" font-size="11" text-anchor="middle" fill="#475569">mgmt 10.10.1.189</text>
+      <text x="1110" y="388" font-size="10" text-anchor="middle" fill="#334155">Port3 -> 711 | Port4 -> 712</text>
+      <text x="1110" y="406" font-size="10" text-anchor="middle" fill="#334155">mgmt NIC: Port1</text>
+    </g>
+  </svg>
+  </div>
+  <p class="note">Storage MACs for the four cluster nodes were re-read live on 2026-08-31 and are authoritative. Node 03 rows below are the last recorded values from 2026-07-17 and are UNVERIFIED, because node 03 is workgroup joined and was not queried. Note that the 2026-07 revision of this page had Port3 and Port4 transposed on nodes 01, 04 and 06. That transposition was the storage fault, and it was corrected on the hosts with Rename-NetAdapter. The values here now match the running cluster.</p>
+  <p class="note"><b>Adapter names are load bearing.</b> Network ATC binds an intent to an adapter <i>name</i>, and that name has to be identical on every node. The management port on all four cluster nodes was therefore renamed to <code>Management</code> on 2026-07-23, from <code>CORP</code> on 01 and 02, <code>Port2</code> on 04 and <code>Port1</code> on 06. The deployment parameters bind to <code>"adapter": [ "Management" ]</code>. Node 03 received neither rename: its management port is still <code>Port1</code>, and its Port3 and Port4 are most likely still transposed the way 01, 04 and 06 were, because it shares their PCI enumeration order. Verify and rename both before node 03 is ever added to the cluster.</p>
+  <h2>Storage interfaces (100 GbE Mellanox, OUI 98:03:9B)</h2>
+  <table>
+    <thead><tr><th>Node</th><th>Role</th><th>Host port</th><th class="mono">MAC</th><th>Fabric</th><th>Switch</th><th>Speed</th></tr></thead>
+    <tbody>
+      <tr><td>AZL-NODE-01</td><td>Cluster</td><td>Port3</td><td class="mono">00-00-5E-00-53-06</td><td><span class="pill p-green">VLAN 711</span></td><td>sw1</td><td>100 Gbps</td></tr>
+      <tr><td>AZL-NODE-01</td><td>Cluster</td><td>Port4</td><td class="mono">00-00-5E-00-53-01</td><td><span class="pill p-orange">VLAN 712</span></td><td>sw2</td><td>100 Gbps</td></tr>
+      <tr><td>AZL-NODE-02</td><td>Cluster</td><td>Port3</td><td class="mono">00-00-5E-00-53-03</td><td><span class="pill p-green">VLAN 711</span></td><td>sw1</td><td>100 Gbps</td></tr>
+      <tr><td>AZL-NODE-02</td><td>Cluster</td><td>Port4</td><td class="mono">00-00-5E-00-53-04</td><td><span class="pill p-orange">VLAN 712</span></td><td>sw2</td><td>100 Gbps</td></tr>
+      <tr><td>AZL-NODE-04</td><td>Cluster</td><td>Port3</td><td class="mono">00-00-5E-00-53-07</td><td><span class="pill p-green">VLAN 711</span></td><td>sw1</td><td>100 Gbps</td></tr>
+      <tr><td>AZL-NODE-04</td><td>Cluster</td><td>Port4</td><td class="mono">00-00-5E-00-53-08</td><td><span class="pill p-orange">VLAN 712</span></td><td>sw2</td><td>100 Gbps</td></tr>
+      <tr><td>AZL-NODE-06</td><td>Cluster</td><td>Port3</td><td class="mono">00-00-5E-00-53-09</td><td><span class="pill p-green">VLAN 711</span></td><td>sw1</td><td>100 Gbps</td></tr>
+      <tr><td>AZL-NODE-06</td><td>Cluster</td><td>Port4</td><td class="mono">00-00-5E-00-53-0A</td><td><span class="pill p-orange">VLAN 712</span></td><td>sw2</td><td>100 Gbps</td></tr>
+      <tr><td>AZL-NODE-03</td><td>Spare</td><td>Port3</td><td class="mono">00-00-5E-00-53-0F</td><td><span class="pill p-green">VLAN 711</span></td><td>sw1</td><td>100 Gbps</td></tr>
+      <tr><td>AZL-NODE-03</td><td>Spare</td><td>Port4</td><td class="mono">00-00-5E-00-53-11</td><td><span class="pill p-orange">VLAN 712</span></td><td>sw2</td><td>100 Gbps</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Management interfaces (1 GbE Broadcom, OUI C4:CB:E1)</h2>
+  <table>
+    <thead><tr><th>Node</th><th>Role</th><th>Host port</th><th class="mono">MAC</th><th>VLAN</th><th class="mono">Mgmt IP</th></tr></thead>
+    <tbody>
+      <tr><td>AZL-NODE-01</td><td>Cluster</td><td>Management</td><td class="mono">00-00-5E-00-53-0B</td><td><span class="pill p-blue">VLAN 152</span></td><td class="mono">10.10.1.187</td></tr>
+      <tr><td>AZL-NODE-02</td><td>Cluster</td><td>Management</td><td class="mono">00-00-5E-00-53-0C</td><td><span class="pill p-blue">VLAN 152</span></td><td class="mono">10.10.1.188</td></tr>
+      <tr><td>AZL-NODE-04</td><td>Cluster</td><td>Management</td><td class="mono">00-00-5E-00-53-0D</td><td><span class="pill p-blue">VLAN 152</span></td><td class="mono">10.10.1.190</td></tr>
+      <tr><td>AZL-NODE-06</td><td>Cluster</td><td>Management</td><td class="mono">00-00-5E-00-53-0E</td><td><span class="pill p-blue">VLAN 152</span></td><td class="mono">10.10.1.192</td></tr>
+      <tr><td>AZL-NODE-03</td><td>Spare</td><td>Port1</td><td class="mono">00-00-5E-00-53-10</td><td><span class="pill p-blue">VLAN 152</span></td><td class="mono">10.10.1.189</td></tr>
+    </tbody>
+  </table>
+  <p class="note">Nodes 03, 04, 06 have a second unused Broadcom port. Leave those switch ports shut or in the default access VLAN. Only the one management port per node listed above carries an IP.</p>
+
+  <div class="two">
+    <div>
+      <h2>Switch config - storage ports</h2>
+      <table>
+        <tbody>
+          <tr><th>Port role</th><td>Mellanox 100 GbE (OUI 98:03:9B)</td></tr>
+          <tr><th>Mode</th><td>802.1Q tagged - single storage VLAN per port (not a multi-VLAN trunk)</td></tr>
+          <tr><th>Tagged VLAN</th><td>ONE per port: sw1 ports = 711 only; sw2 ports = 712 only. Tagged (not access) so PFC 802.1p priority survives.</td></tr>
+          <tr><th>Link aggregation</th><td><b>NONE - no channel-group / LACP / port-channel on storage ports.</b> Host uses Switch Embedded Teaming (switch-independent) + SMB Multichannel, NOT switch-side LAG. A channel-group will suspend the port (host does not speak LACP here).</td></tr>
+          <tr><th>Native VLAN</th><td>1 (default, unused) - never 711 or 712</td></tr>
+          <tr><th>L2 MTU</th><td>9214 on the switch. NOTE: the hosts are NOT running jumbo. Measured 2026-08-31, *JumboPacket is 1514 and NlMtu is 1500 on Port3 and Port4 across all four nodes. Switch headroom is harmless, but the storage path is running standard frames today.</td></tr>
+          <tr><th>PFC</th><td>Priority 3, lossless (802.1Qbb)</td></tr>
+          <tr><th>ETS / DCBX</th><td>ETS enabled (802.1Qaz); DCBX mode ieee</td></tr>
+          <tr><th>Gateway / routing</th><td>None - storage VLANs are non-routed</td></tr>
+          <tr><th>STP</th><td>Edge / portfast on host ports</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div>
+      <h2>Switch config - management ports</h2>
+      <table>
+        <tbody>
+          <tr><th>Port role</th><td>Broadcom 1 GbE (OUI C4:CB:E1)</td></tr>
+          <tr><th>Mode</th><td>Access</td></tr>
+          <tr><th>VLAN</th><td>152</td></tr>
+          <tr><th>Routing</th><td>Routed, gateway 10.10.1.1</td></tr>
+          <tr><th>Subnet</th><td>10.10.0.0/22</td></tr>
+          <tr><th>DNS</th><td>10.20.50.50, 10.20.10.50</td></tr>
+          <tr><th>MTU</th><td>Standard (1500)</td></tr>
+          <tr><th>PFC / jumbo</th><td>Not required</td></tr>
+        </tbody>
+      </table>
+      <p class="note">Storage IPs are not set on the switch. The host software (Network ATC) auto-assigns them at deploy time. For a switched deployment the Network ATC defaults are 10.40.1.0/24 on VLAN 711 and 10.40.2.0/24 on VLAN 712 (not the 192.168.71/72 switchless full-mesh values).</p>
+    </div>
+  </div>
+
+  <h2>Critical rules</h2>
+  <div class="rules">
+    <ol>
+      <li><b>Storage VLANs 711 and 712 must be tagged, never native, and each storage port carries only ONE of them.</b> RoCEv2 lossless depends on PFC, and PFC uses the 802.1p priority bits carried inside the 802.1Q VLAN tag. A native (untagged) storage VLAN strips the priority and breaks lossless RDMA. Each port is a single-VLAN tagged port (sw1 = 711, sw2 = 712), not a multi-VLAN trunk. Keep native as the default unused VLAN 1.</li>
+      <li><b>Jumbo on the switch, but check the hosts.</b> L2 MTU 9214 on the storage ports gives headroom. As measured on 2026-08-31 the hosts are running 1514 / MTU 1500 on both storage adapters, not 9014, so the end to end path is standard frames. Storage is healthy and RDMA is up regardless, so this is a performance question rather than a correctness one. Decide deliberately whether to enable jumbo end to end.</li>
+      <li><b>PFC on priority 3 plus ETS.</b> These NICs are NVIDIA/Mellanox ConnectX-5, which are RoCE-only, and RoCE requires PFC and ETS. This is not optional.</li>
+      <li><b>Both switches must be symmetric.</b> sw1 carries the 711 fabric, sw2 carries the 712 fabric. Apply the same tagged-VLAN, jumbo, and PFC settings on both.</li>
+      <li><b>Storage stays layer 2.</b> No gateway, no routing, no IP on 711 or 712. Only VLAN 152 (management) is routed and is the path users and Azure use to reach the cluster.</li>
+      <li><b>No link aggregation on storage ports.</b> Do NOT put storage ports in a channel-group / LACP / port-channel. Azure Local uses Switch Embedded Teaming (switch-independent) with SMB Multichannel across the two separate storage VLANs; it does not use switch-side LAG. An LACP channel-group (<code>mode active</code>) will leave the member port suspended because the host never negotiates LACP on it.</li>
+    </ol>
+  </div>
+
+  <h2>Switch port map (confirmed 2026-07-17)</h2>
+  <table>
+    <thead><tr><th>Node</th><th>Role</th><th>NIC4 = Port3 (VLAN 711)</th><th>NIC5 = Port4 (VLAN 712)</th></tr></thead>
+    <tbody>
+      <tr><td>AZL-NODE-01</td><td>Cluster</td><td>SW1 Et9/1 (port 9)</td><td>SW2 Et9/2 (port 9)</td></tr>
+      <tr><td>AZL-NODE-02</td><td>Cluster</td><td>SW1 port 10</td><td>SW2 port 10</td></tr>
+      <tr><td>AZL-NODE-03</td><td>Spare</td><td>SW1 port 11</td><td>SW2 port 11</td></tr>
+      <tr><td>AZL-NODE-04</td><td>Cluster</td><td>SW1 port 12</td><td>SW2 port 12</td></tr>
+      <tr><td>AZL-NODE-05</td><td>Deferred</td><td>SW1 port 13</td><td>SW2 port 13</td></tr>
+      <tr><td>AZL-NODE-06</td><td>Cluster</td><td>SW1 port 14</td><td>SW2 port 14</td></tr>
+    </tbody>
+  </table>
+  <p class="note">Switches: SW1 = STOR-SW-01, SW2 = STOR-SW-02 (Arista 7050). The switch team's NIC4/NIC5 = the host's Port3/Port4 (both Mellanox ConnectX-5). Every node's NIC4 lands on SW1 (711 fabric) and NIC5 on SW2 (712 fabric).</p>
+
+  <h2>Correct storage-port config (Arista EOS example, SW1)</h2>
+  <div class="rules">
+    <pre style="margin:0;font-family:Consolas,monospace;font-size:12px;white-space:pre-wrap">interface Ethernet9/1
+   description azl-node-01
+   mtu 9214
+   switchport
+   switchport mode trunk
+   switchport trunk allowed vlan 711        ! SW2 ports use 712
+   dcbx mode ieee
+   priority-flow-control on
+   priority-flow-control priority 3 no-drop
+   spanning-tree portfast edge
+   spanning-tree bpduguard enable
+   no channel-group 9 mode active           ! REMOVE - no LACP on storage</pre>
+    <p class="note" style="margin-top:8px">Difference vs the config applied to Et9/1: remove the <code>channel-group 9 mode active</code> line and add the <code>switchport ... trunk allowed vlan 711</code> lines (the applied config had no storage VLAN). Everything else (mtu 9214, dcbx ieee, PFC pri 3 no-drop, portfast edge) is correct.</p>
+  </div>
+
+  <h2>Switch configuration deltas from factory default (hand to network team)</h2>
+  <p class="note">Everything below is the DELTA from a factory-default Arista 7050 interface. A default port is <code>switchport mode access</code>, <code>access vlan 1</code>, no PFC, no DCBX, normal STP, no LAG, no port isolation. Only rows that DIFFER from default are listed. Apply the storage block to the node ports on BOTH switches - SW1 ports carry VLAN 711, SW2 ports carry VLAN 712. Node-to-switch-port map is in the table above (01=et9, 02=et10, 04=et12, 06=et14).</p>
+
+  <h3 style="font-size:14px;margin:18px 0 8px;color:#334155">Storage ports - Mellanox 100 GbE (SW1 = 711, SW2 = 712)</h3>
+  <table>
+    <thead><tr><th>Setting</th><th>Factory default</th><th>Required value</th><th>Why it differs</th></tr></thead>
+    <tbody>
+      <tr><td>switchport mode</td><td>access</td><td><b>trunk</b></td><td>Storage VLAN is delivered tagged (802.1Q) so PFC 802.1p priority bits survive</td></tr>
+      <tr><td>switchport trunk allowed vlan</td><td>all (1-4094)</td><td><b>711</b> (SW1) / <b>712</b> (SW2) only</td><td>Restrict to the one storage VLAN. If 711/712 is not in the allowed list, tagged frames are dropped at ingress</td></tr>
+      <tr><td>switchport trunk native vlan</td><td>1</td><td>1 (keep) - <b>never</b> 711/712</td><td>If native equals the storage VLAN the tag is stripped and PFC breaks</td></tr>
+      <tr><td>switchport protected / port isolation</td><td>off</td><td><b>off</b></td><td>If protected/isolated, MACs still learn but east-west within the VLAN is blocked. This was a suspect during the 2026-07 outage and is no longer a concern, since east-west now works on both fabrics</td></tr>
+      <tr><td>channel-group / LACP</td><td>none</td><td><b>none (must be absent)</b></td><td>SET is switch-independent; a channel-group leaves the member port suspended</td></tr>
+      <tr><td>mtu (L2)</td><td>platform default</td><td>9214</td><td>Headroom for jumbo. Hosts are currently at 1514 / MTU 1500, so this is headroom that is not being used yet</td></tr>
+      <tr><td>dcbx mode</td><td>off</td><td>ieee</td><td>RoCEv2 requires DCB negotiation</td></tr>
+      <tr><td>priority-flow-control</td><td>off</td><td>on; priority 3 no-drop</td><td>RoCEv2 lossless on priority 3</td></tr>
+      <tr><td>spanning-tree</td><td>normal</td><td>portfast edge + bpduguard enable</td><td>Host-facing edge ports; avoid forwarding delay and loops</td></tr>
+      <tr><td>SVI / IP on VLAN 711/712</td><td>none</td><td>none (keep)</td><td>Storage stays layer 2, non-routed; ATC assigns host IPs 10.40.1.x / 10.40.2.x</td></tr>
+    </tbody>
+  </table>
+
+  <h3 style="font-size:14px;margin:18px 0 8px;color:#334155">Management ports - Broadcom 1 GbE</h3>
+  <table>
+    <thead><tr><th>Setting</th><th>Factory default</th><th>Required value</th><th>Why it differs</th></tr></thead>
+    <tbody>
+      <tr><td>switchport access vlan</td><td>1</td><td><b>152</b></td><td>Management plane is VLAN 152 (routed, gw 10.10.1.1)</td></tr>
+      <tr><td>switchport mode</td><td>access</td><td>access (keep)</td><td>Mgmt is a plain untagged access port - no change from default mode</td></tr>
+      <tr><td>mtu, PFC, DCBX</td><td>default / off</td><td>leave default</td><td>Standard 1500 MTU, no lossless needed on the mgmt plane</td></tr>
+    </tbody>
+  </table>
+
+  <div class="rules" style="background:#f0fdf4;border-color:#bbf7d0;margin-top:16px">
+    <b style="color:#15803d">Status as of 2026-08-31: storage networking is healthy. The 2026-07 fault is closed.</b>
+    <p style="margin:8px 0 0">The failure this page was originally written to diagnose was 0 of 6 east-west on both storage VLANs. It was not switch port isolation and it was not the allowed-vlan list. On three of the four cluster machines the two Mellanox adapters were transposed, so the adapter carrying VLAN 711 was cabled to the switch serving 712 and the reverse. Node 02 was the only one wired the way the documentation described, which is why the pattern was hard to see.</p>
+    <p style="margin:8px 0 0">It was corrected on the hosts with <code>Rename-NetAdapter</code> rather than by recabling the rack. Verified live on 2026-08-31 across nodes 01, 02, 04 and 06:</p>
+    <ul style="margin:8px 0 0">
+      <li>Port3 tagged VLAN 711 and Port4 tagged VLAN 712 on every node</li>
+      <li>RDMA enabled on all eight storage adapters</li>
+      <li>PFC enabled on priority 3 only, with an ETS SMB_Direct class at priority 3</li>
+      <li>Network ATC intents <code>compute_management</code> and <code>storage</code> both report Success and Completed on all four nodes</li>
+      <li>All four cluster nodes Up</li>
+    </ul>
+    <p style="margin:8px 0 0">Open item: the hosts are running standard frames on the storage adapters, not jumbo. See the MTU note above.</p>
+  </div>
+
+  <p class="note">Reference: Microsoft Learn - Physical network requirements for Azure Local (IEEE 802.1Qbb PFC, 802.1Qaz ETS) and the Azure/AzureLocal-Supportability Top-of-Rack QoS Policy configuration. Original host data captured 2026-07-17, node 02 storage MACs refreshed 2026-07-24 after the card swap. Storage MACs, VLAN tags, RDMA state, PFC priority and MTU re-verified live against all four cluster nodes on 2026-08-31. Switch port numbers were last confirmed 2026-07-17 and have not been re-read from the switches since.</p>
+
+</main>
+</body>
+</html>

@@ -1,0 +1,17 @@
+# Local-only tooling, generated infrastructure state, and credentials.
+/.local-tools/
+/out/
+**/.terraform/
+**/__pycache__/
+**/node_modules/
+**/.creds/
+*.cred
+*.key
+**/.kube/
+*.tfstate
+*.tfstate.*
+*.tfvars
+*.tfvars.json
+*.kubeconfig
+.env
+!.env.example
