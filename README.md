@@ -57,9 +57,9 @@ No package installation, build step, cloud account, or credentials are needed fo
 python -m http.server 8000 --bind 127.0.0.1 --directory .\docs
 ```
 
-Open `http://127.0.0.1:8000/viewer/` for the viewing window or `http://127.0.0.1:8000/` for the unchanged standalone deck. Stop the server with `Ctrl+C`. You can also open `docs\index.html` directly in a modern browser.
+Open `http://127.0.0.1:8000/viewer/` for the viewing window or `http://127.0.0.1:8000/` for the standalone deck. Stop the server with `Ctrl+C`. You can also open `docs\index.html` directly in a modern browser.
 
-The viewer first shows an informative preview. Click it to expand the presentation in an in-page lightbox over a dimmed background, with brief instructions above and below the scaled stage. **Exit view** returns to the preview and restores focus and scroll; reopening keeps your place in the deck. **Focus presentation** moves keyboard focus into the deck; `Alt+Shift+H` returns to frame controls. `Esc` closes BUILT evidence first, then exits the view; fullscreen has its own browser-level Escape behavior. **Full view** opens the unchanged standalone deck in a user-activated new tab. No browser popup or playback starts automatically.
+The viewer first shows an informative preview. Click it to expand the presentation in an in-page lightbox over a dimmed background, with brief instructions above and below the scaled stage. **Exit view** returns to the preview and restores focus and scroll; reopening keeps your place in the deck. **Focus presentation** moves keyboard focus into the deck; `Alt+Shift+H` returns to frame controls. `Esc` closes BUILT evidence first, then exits the view; fullscreen has its own browser-level Escape behavior. **Full view** opens the standalone deck in the same tab, with visible **Back to viewer** and **Back to portfolio** links outside the scaled presentation. No browser popup or playback starts automatically.
 
 The authored deck keeps its native 16:9 aspect ratio rather than reflowing. On a small or portrait display, fine detail can remain small even though the external guidance stays readable. Full view or fullscreen gives the deck more room; landscape is preferable for its dense diagrams. The frame does not redraw the presentation or introduce live management controls.
 
@@ -84,7 +84,7 @@ The composition has a native 1536 x 864 stage and scales at the same 16:9 aspect
 
 The source layout is retained as a dated engineering snapshot under `source/`, with example environment identifiers. Commands and paths are relative to that directory and may describe environment-specific or historical behavior. Read the relevant runbook and configuration before running any infrastructure automation. Serving the capstone does not require executing these files.
 
-The same-origin `viewer/?embed=1` route supplies only the presentation and guidance for an embedding host's own modal. It requests exit with `{type: 'capstone-viewer:exit'}` sent to its parent's exact `location.origin`. Hosts must validate both the sender origin and iframe window, own modal focus containment, and restore trigger focus/scroll. Keeping the iframe preserves deck position; removing it on exit restarts the deck next time. The viewer accepts only typed parent visibility and Escape messages from that exact origin/window; it does not evaluate commands or perform live operations.
+The same-origin `viewer/?embed=1` route supplies only the presentation and guidance for an embedding host's own modal. **Exit view** and **Back to portfolio** request exit with `{type: 'capstone-viewer:exit'}` sent to the parent's exact `location.origin`, rather than loading the portfolio inside an iframe. Hosts must validate both the sender origin and iframe window, own modal focus containment, and restore trigger focus/scroll. Keeping the iframe preserves deck position; removing it on exit restarts the deck next time. Full view navigates the top-level tab to the standalone deck. The viewer accepts only typed parent visibility and Escape messages from that exact origin/window; it does not evaluate commands or perform live operations.
 
 ## Reusing the infrastructure examples
 

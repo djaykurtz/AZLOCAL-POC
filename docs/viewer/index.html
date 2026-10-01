@@ -112,12 +112,13 @@ kbd { color: var(--ink); font: 1rem/1.35 var(--mono); }
 <main class="preview" id="preview">
   <div class="label">AZURE LOCAL CAPSTONE</div>
   <h1>From physical fabric to working workloads</h1>
-  <p class="description">Explore a recorded four-node engineering POC: networking, pooled storage, Azure Arc, Kubernetes, and workload recovery. Interactive diagrams and evidence replays, not a live cluster. No Azure account is required.</p>
+  <p class="description">Explore a four-node engineering journey through networking, pooled storage, Azure Arc, Kubernetes, and workload recovery, brought together in interactive diagrams and recorded evidence.</p>
   <button class="preview-card" id="openViewer" type="button" aria-haspopup="dialog" aria-controls="viewDialog" aria-label="Open the Azure Local capstone viewing window">
     <img src="../assets/screenshots/03-platform-architecture.png" width="1536" height="864" alt="Azure Local platform diagram with Arc bridge, Storage Spaces Direct, and the physical fabric" />
     <span>Explore the capstone &rarr;</span>
   </button>
   <div class="preview-links">
+    <a class="control" href="https://djaykurtz.github.io/#azure-local">Back to portfolio</a>
     <a class="control" href="../index.html">Standalone presentation</a>
     <p>Open, explore, and close the window. Your place in the deck is kept.</p>
   </div>
@@ -128,10 +129,11 @@ kbd { color: var(--ink); font: 1rem/1.35 var(--mono); }
   <header class="top">
     <div class="identity">
       <h1 id="viewerTitle"><span class="label">VIEWING WINDOW</span>Azure Local</h1>
-      <p>Recorded engineering. No live Azure connection.</p>
+      <p>Explore the engineering journey.</p>
     </div>
     <nav class="controls" aria-label="Viewing controls">
-      <a class="control primary" href="../index.html" target="_blank" rel="noopener" aria-label="Full view: open the standalone presentation in a new tab">Full view (new tab)</a>
+      <a class="control primary" id="fullView" href="../index.html">Full view</a>
+      <a class="control" id="backPortfolio" href="https://djaykurtz.github.io/#azure-local">Back to portfolio</a>
       <button class="control" id="fullscreen" type="button" aria-describedby="screenHint">Fullscreen</button>
       <button class="control" id="focusDeck" type="button" aria-describedby="keyboardHint" disabled>Focus presentation</button>
       <button class="control exit" id="exitView" type="button">Exit view</button>
@@ -139,7 +141,7 @@ kbd { color: var(--ink); font: 1rem/1.35 var(--mono); }
   </header>
 
   <section class="window" aria-label="Presentation">
-    <iframe id="presentation" data-src="../index.html" title="Azure Local capstone: interactive recorded presentation" tabindex="0" allow="fullscreen" allowfullscreen aria-describedby="screenHint keyboardHint"></iframe>
+    <iframe id="presentation" data-src="../index.html?framed=1" title="Azure Local capstone: interactive recorded presentation" tabindex="0" allow="fullscreen" allowfullscreen aria-describedby="screenHint keyboardHint"></iframe>
   </section>
 
   <footer class="bottom" aria-label="Presentation instructions">
@@ -170,6 +172,8 @@ kbd { color: var(--ink); font: 1rem/1.35 var(--mono); }
   const viewer = document.getElementById('viewer');
   const opener = document.getElementById('openViewer');
   const exitButton = document.getElementById('exitView');
+  const backPortfolio = document.getElementById('backPortfolio');
+  const fullView = document.getElementById('fullView');
   const embedded = new URLSearchParams(location.search).get('embed') === '1';
   let ready = false;
   let visible = false;
@@ -319,6 +323,15 @@ kbd { color: var(--ink); font: 1rem/1.35 var(--mono); }
     dialog.remove();
     setVisible(true);
     loadPresentation();
+    fullView.target = '_top';
+    backPortfolio.addEventListener('click', event => {
+      if (window.parent !== window) {
+        event.preventDefault();
+        exitView();
+      } else {
+        backPortfolio.target = '_top';
+      }
+    });
   }
 
   focusButton.addEventListener('click', () => {
