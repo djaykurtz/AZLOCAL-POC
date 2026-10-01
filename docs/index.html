@@ -4,6 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Azure Local POC</title>
+<script>if (new URLSearchParams(location.search).get('framed') === '1') document.documentElement.classList.add('framed');</script>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMiAzMiI+PHJlY3Qgd2lkdGg9IjMyIiBoZWlnaHQ9IjMyIiByeD0iNCIgZmlsbD0iIzE2MTYxYiIvPjxwYXRoIGQ9Ik03IDI1VjE3IiBzdHJva2U9IiMzNWUwZTgiIHN0cm9rZS13aWR0aD0iMyIvPjxwYXRoIGQ9Ik0xMiAyNVYxMiIgc3Ryb2tlPSIjYTc4YmZhIiBzdHJva2Utd2lkdGg9IjMiLz48cGF0aCBkPSJNMTcgMjVWNyIgc3Ryb2tlPSIjZWRiMjAwIiBzdHJva2Utd2lkdGg9IjMiLz48cGF0aCBkPSJNMjIgMjVWMTAiIHN0cm9rZT0iIzAwYzc1OCIgc3Ryb2tlLXdpZHRoPSIzIi8+PHBhdGggZD0iTTI3IDI1VjE1IiBzdHJva2U9IiNmZTZlMDAiIHN0cm9rZS13aWR0aD0iMyIvPjwvc3ZnPg==" />
 <style>
 /* styles.css */
@@ -15,6 +16,7 @@
  */
 
 :root {
+  --navigation-height: 56px;
   --shell: #16161b;
   --panel: #1b1b21;
   --ink: #ece8e1;
@@ -50,10 +52,37 @@ html, body { height: 100%; overflow: hidden; }
 
 .fit {
   position: fixed;
-  inset: 0;
+  inset: var(--navigation-height) 0 0;
   overflow: hidden;
   background: #000;
 }
+
+.portfolio-nav {
+  position: fixed;
+  inset: 0 0 auto;
+  z-index: 100;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 6px 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--shell);
+}
+.portfolio-nav a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  color: var(--ink);
+  font: 16px/1.4 var(--sans);
+  text-decoration: none;
+}
+.portfolio-nav a:hover { border-color: var(--ink-soft); }
+.portfolio-nav a:focus-visible { outline: 3px solid var(--k-net); outline-offset: 2px; }
+.framed .portfolio-nav { display: none; }
+.framed .fit { inset: 0; }
 
 /* Anchored at the centre and pulled back by half its own size. A grid would leave an oversized
    item at the start and then scaling from its middle pushes it off to one side. */
@@ -3180,6 +3209,10 @@ html, body {
 </head>
 <body>
 
+<nav class="portfolio-nav" id="portfolioNav" aria-label="Project navigation">
+  <a href="https://djaykurtz.github.io/#azure-local" target="_top">Back to portfolio</a>
+  <a href="https://djaykurtz.github.io/AZLOCAL-POC/viewer/" target="_top">Back to viewer</a>
+</nav>
 <div class="fit">
 <div class="stage" id="stage">
 
@@ -3390,7 +3423,10 @@ const FIT = (function () {
   function apply() {
     if (!stage) stage = document.getElementById('stage');
     if (!stage) return;
-    s = Math.min(window.innerWidth / W, window.innerHeight / H);
+    const navigation = document.getElementById('portfolioNav');
+    if (navigation) document.documentElement.style.setProperty('--navigation-height', navigation.getBoundingClientRect().height + 'px');
+    const viewport = stage.parentElement;
+    s = Math.min(viewport.clientWidth / W, viewport.clientHeight / H);
     // Scale first, so the -50% pullback resolves in scaled pixels and the bars come out even.
     stage.style.transform = 'scale(' + s + ') translate(-50%, -50%)';
     api.s = s;
@@ -3424,7 +3460,10 @@ const FIT = (function () {
     window.visualViewport.addEventListener('resize', apply);
   }
   if (window.ResizeObserver) {
-    new ResizeObserver(apply).observe(document.documentElement);
+    const observer = new ResizeObserver(apply);
+    observer.observe(document.documentElement);
+    const navigation = document.getElementById('portfolioNav');
+    if (navigation) observer.observe(navigation);
   }
   apply();
 
