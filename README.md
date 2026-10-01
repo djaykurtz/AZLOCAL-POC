@@ -2,7 +2,7 @@
 
 **David Kurtz | Infrastructure engineering portfolio**
 
-A four-node Azure Local proof of concept, with an interactive capstone that explains how physical networking, pooled storage, Azure management, Kubernetes, and application delivery fit together.
+A six-node Azure Local ambition became a working four-node proof of concept through practical, resource-aware cluster engineering. The interactive capstone follows that journey from six available machines to pooled storage, Azure management, Kubernetes, and useful workloads.
 
 **Explore:** [Guided viewing window](https://djaykurtz.github.io/AZLOCAL-POC/viewer/) | [Standalone capstone](https://djaykurtz.github.io/AZLOCAL-POC/) | [Source repository](https://github.com/djaykurtz/AZLOCAL-POC). The capstone is a static explanation of recorded engineering work, not a connection to a running lab.
 
@@ -10,9 +10,13 @@ A four-node Azure Local proof of concept, with an interactive capstone that expl
 
 ## The engineering problem
 
-Could available lab workstations become a managed Azure Local platform that hosts useful workloads, rather than merely registering hardware in Azure?
+The original goal was a six-node Azure Local deployment using six available lab workstations. Could that hardware become a managed platform that hosts useful workloads, rather than merely registering machines in Azure?
 
-The difficult work was getting the prerequisites to agree: firmware and drivers, plain NVMe storage, switch configuration and adapter naming, directory permissions, security-agent boundaries, and limited memory. The accepted scope became four functional nodes from an initial six-machine inventory. This is a functional lab POC, not certified production infrastructure.
+The difficult work was getting the prerequisites to agree: firmware and drivers, plain NVMe storage, switch configuration and adapter naming, directory permissions, security-agent boundaries, and limited memory. Prioritizing four validated nodes reduced the storage, memory, and validation complexity of the first deployment. Available machines and components could then serve the build as members, spares, or donor paths rather than making all six a prerequisite to success.
+
+The delivered cluster brought four nodes into service. Matching data-drive counts and characteristics made pooled storage possible; consistent adapter naming and switch trunk configuration made the storage fabric work. Azure Arc then connected the local platform to its management plane, while guest VMs and AKS demonstrated two ways to run workloads. The constraints made the cluster's dependencies visible and turned the original design into a functioning POC, not just a topology diagram.
+
+The [original six-node target](source/docs/planning/original-poc-acceptance-criteria.md), [scope decision](source/docs/decisions/0004-four-node-functional-poc-scope.md), [storage-symmetry decision](source/docs/decisions/0011-three-data-disks-per-node.md), and [final status](source/STATUS.md) record the intent, tradeoffs, and outcome. The result is a functional lab POC, not production certification.
 
 ## Architecture
 
