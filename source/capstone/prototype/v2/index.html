@@ -34,10 +34,6 @@
         <span class="ctl-label">Details:</span>
         <button id="btnBuilt" class="built-btn" type="button" data-note="n-built" title="Cut away the interface and look underneath">BUILT</button>
       </div>
-
-      <button id="notesToggle" class="notes-toggle" type="button">
-        Notes <span class="notes-count" id="notesCount">0</span>
-      </button>
     </div>
   </header>
 
@@ -97,9 +93,6 @@
 
 </div>
 
-<!-- Commentary layer. Sits above everything, changes nothing beneath it. -->
-<div class="notes-layer" id="notesLayer" aria-hidden="true"></div>
-<div class="notes-index" id="notesIndex" aria-hidden="true"></div>
 
 <!-- Click a node to explain it. A callout beside the thing, not a modal over the room. -->
 <aside class="callout" id="callout" hidden>
@@ -198,8 +191,6 @@
 <script src="mockup.js"></script>
 <script src="built.js"></script>
 <script src="explain.js"></script>
-<script src="answers.js"></script>
-<script src="notes.js"></script>
 <script src="../intro.js"></script>
 <script src="boot.js"></script>
 </body>
