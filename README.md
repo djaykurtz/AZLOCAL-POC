@@ -2,7 +2,7 @@
 
 **David Kurtz | Infrastructure engineering portfolio**
 
-A six-node Azure Local ambition became a working four-node proof of concept through practical, resource-aware cluster engineering. The interactive capstone follows that journey from six available machines to pooled storage, Azure management, Kubernetes, and useful workloads.
+A six-node Azure Local ambition became a working four-node proof of concept through practical, resource-aware cluster engineering. The interactive capstone follows the build from six available machines to pooled storage, Azure management, Kubernetes, and useful workloads.
 
 **Explore:** [Guided viewing window](https://djaykurtz.github.io/AZLOCAL-POC/viewer/) | [Standalone capstone](https://djaykurtz.github.io/AZLOCAL-POC/) | [Source repository](https://github.com/djaykurtz/AZLOCAL-POC). The capstone is a static explanation of recorded engineering work, not a connection to a running lab.
 
@@ -10,11 +10,16 @@ A six-node Azure Local ambition became a working four-node proof of concept thro
 
 ## The engineering problem
 
-The original goal was a six-node Azure Local deployment using six available lab workstations. Could that hardware become a managed platform that hosts useful workloads, rather than merely registering machines in Azure?
+The goal was a **six-node** Azure Local cluster on six available lab workstations: a managed platform that hosts useful workloads, rather than machines merely registered in Azure.
 
-The difficult work was getting the prerequisites to agree: firmware and drivers, plain NVMe storage, switch configuration and adapter naming, directory permissions, security-agent boundaries, and limited memory. Prioritizing four validated nodes reduced the storage, memory, and validation complexity of the first deployment. Available machines and components could then serve the build as members, spares, or donor paths rather than making all six a prerequisite to success.
+The hard part was getting the prerequisites to agree: firmware and drivers, plain NVMe storage, switch configuration and adapter naming, directory permissions, security-agent boundaries, and limited memory. Prioritizing **four validated nodes** cut the storage, memory, and validation complexity of the first deployment. The other machines and parts then served as spares or donors instead of all six being a prerequisite to success.
 
-The delivered cluster brought four nodes into service. Matching data-drive counts and characteristics made pooled storage possible; consistent adapter naming and switch trunk configuration made the storage fabric work. Azure Arc then connected the local platform to its management plane, while guest VMs and AKS demonstrated two ways to run workloads. The constraints made the cluster's dependencies visible and turned the original design into a functioning POC, not just a topology diagram.
+What made the four-node cluster work:
+
+- Matching data-drive counts and characteristics made pooled storage possible.
+- Consistent adapter naming and switch trunk configuration made the storage fabric work.
+- Azure Arc connected the local platform to its management plane.
+- Guest VMs and AKS demonstrated two ways to run workloads.
 
 The [original six-node target](source/docs/planning/original-poc-acceptance-criteria.md), [scope decision](source/docs/decisions/0004-four-node-functional-poc-scope.md), [storage-symmetry decision](source/docs/decisions/0011-three-data-disks-per-node.md), and [final status](source/STATUS.md) record the intent, tradeoffs, and outcome. The result is a functional lab POC, not production certification.
 
@@ -35,9 +40,14 @@ The [original six-node target](source/docs/planning/original-poc-acceptance-crit
 
 ## What was demonstrated
 
-The retained project records document a deployed four-node cluster, operational Storage Spaces Direct, an Arc Resource Bridge and custom location, and Windows and Linux guest workloads. VM lifecycle operations, live migration, and planned host-reboot recovery were exercised.
+The retained project records document:
 
-The container work includes Docker and Dockge in a Linux **guest**, not on Azure Local hosts. AKS Arc ran a dashboard workload with a two-replica baseline, a temporary scale to three replicas, replacement of a deleted pod, restoration of the baseline, and requests reaching multiple ready backends through the in-cluster Service. Terraform VM creation and destruction ended with a reconciled clean state.
+- A deployed **four-node cluster** with operational Storage Spaces Direct.
+- An Arc Resource Bridge and custom location.
+- Windows and Linux guest workloads, with VM lifecycle operations, live migration, and planned host-reboot recovery exercised.
+- Docker and Dockge in a Linux **guest**, not on Azure Local hosts.
+- An AKS Arc dashboard workload: a two-replica baseline, a temporary scale to three replicas, replacement of a deleted pod, restoration of the baseline, and requests reaching multiple ready backends through the in-cluster Service.
+- Terraform VM creation and destruction, ending with a reconciled clean state.
 
 These are recorded lab accomplishments, not newly executed infrastructure tests or measurements collected by the public page. See the [status snapshot](source/STATUS.md), [integration results](source/docs/planning/kubernetes-terraform-integration-test-results.md), and [acceptance traceability](source/docs/planning/acceptance-criteria-verification.md) for the precise evidence and caveats.
 
@@ -49,7 +59,7 @@ The public capstone is a **self-contained HTML/CSS/JavaScript presentation**, no
 
 The original Kubernetes dashboard implementation is a separate artifact under [source/tests/kubernetes/azure-local-dashboard](source/tests/kubernetes/azure-local-dashboard/README.md). It combines fixture Azure inventory with read-only Kubernetes state when deployed inside the lab. The static capstone does not deploy or run that dashboard.
 
-The limits matter: this POC does not establish production supportability, disaster recovery, performance capacity, or uninterrupted AKS service during the separate node-loss test. The external MetalLB VIP, HPA, additional node-pool capacity, database workloads, and production delivery pipelines are not claimed as completed. The historical source-validation workflow was authored but never run; this portfolio's Pages workflow is separate and packages only the static presentation.
+This POC does not establish production supportability, disaster recovery, performance capacity, or uninterrupted AKS service during the separate node-loss test. The external MetalLB VIP, HPA, additional node-pool capacity, database workloads, and production delivery pipelines are not claimed as completed. The historical source-validation workflow was authored but never run; this portfolio's Pages workflow is separate and packages only the static presentation.
 
 ![BUILT evidence cutaway: replayed Terraform lifecycle and the commands behind it](docs/assets/screenshots/05-terraform-evidence-cutaway.png)
 
@@ -63,13 +73,21 @@ python -m http.server 8000 --bind 127.0.0.1 --directory .\docs
 
 Open `http://127.0.0.1:8000/viewer/` for the viewing window or `http://127.0.0.1:8000/` for the standalone deck. Stop the server with `Ctrl+C`. You can also open `docs\index.html` directly in a modern browser.
 
-The viewer first shows an informative preview. Click it to expand the presentation in an in-page lightbox over a dimmed background, with brief instructions above and below the scaled stage. **Exit view** returns to the preview and restores focus and scroll; reopening keeps your place in the deck. **Focus presentation** moves keyboard focus into the deck; `Alt+Shift+H` returns to frame controls. `Esc` closes BUILT evidence first, then exits the view; fullscreen has its own browser-level Escape behavior. **Full view** opens the standalone deck in the same tab, with visible **Back to viewer** and **Back to portfolio** links outside the scaled presentation. No browser popup or playback starts automatically.
+The viewer first shows a preview. Click it to open the presentation in an in-page lightbox, with brief instructions above and below the scaled stage. No browser popup or playback starts automatically.
 
-The authored deck keeps its native 16:9 aspect ratio rather than reflowing. On a small or portrait display, fine detail can remain small even though the external guidance stays readable. Full view or fullscreen gives the deck more room; landscape is preferable for its dense diagrams. The frame does not redraw the presentation or introduce live management controls.
+- **Exit view** returns to the preview and restores focus and scroll; reopening keeps your place in the deck.
+- **Focus presentation** moves keyboard focus into the deck; `Alt+Shift+H` returns to frame controls.
+- `Esc` closes BUILT evidence first, then exits the view; fullscreen has its own browser-level Escape behavior.
+- **Full view** opens the standalone deck in the same tab, with **Back to viewer** and **Back to portfolio** links outside the scaled presentation.
 
-Choose **Begin**; clear the intro checkbox to go straight to the console, or use **Skip intro** during the introduction. Click a movement in the left rail to jump to it. The next/previous buttons and left/right arrow keys navigate. **BUILT** is armed by default: Next first opens the movement's cutaway, then advances on the next press. Toggle BUILT off for uninterrupted movement navigation; **Escape** closes a cutaway. The reset button returns to the overview.
+Inside the deck:
 
-The composition has a native 1536 x 864 stage and scales at the same 16:9 aspect ratio. The five screenshots above were captured from functioning presentation states at that native size, not from loading or title screens.
+- Choose **Begin**. Clear the intro checkbox to go straight to the console, or use **Skip intro** during the introduction.
+- Click a movement in the left rail to jump to it, or use the next/previous buttons and left/right arrow keys.
+- **BUILT** is on by default: Next first opens the movement's cutaway, then advances on the next press. Toggle BUILT off for uninterrupted navigation; **Escape** closes a cutaway.
+- The reset button returns to the overview.
+
+The deck has a native 1536 x 864 stage and keeps its 16:9 aspect ratio rather than reflowing. On a small or portrait display, fine detail can stay small; Full view, fullscreen, or landscape gives the dense diagrams more room. The frame does not redraw the presentation or introduce live management controls. The five screenshots above were captured from functioning presentation states at that native size, not from loading or title screens.
 
 ## Repository guide
 
